@@ -1,0 +1,8 @@
+-r base.txt
+
+# Testing
+pytest
+pytest-django
+pytest-mock
+pytest-cov
+factory-boy
