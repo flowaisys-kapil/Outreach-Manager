@@ -22,9 +22,6 @@ SUPPORTED_AI_PROVIDERS = {
     "openai_compatible",
 }
 
-# Supported browser visibility modes
-SUPPORTED_BROWSER_MODES = {"visible", "hidden"}
-
 # Supported execution modes
 SUPPORTED_EXECUTION_MODES = {"manual", "automatic"}
 
@@ -80,17 +77,12 @@ class RuntimeConfig:
 @dataclass
 class BrowserConfig:
     """Browser launch & interaction settings."""
-    visibility: str = "visible"
     use_cdp: bool = True
     cdp_url: str = "http://127.0.0.1:9222"
     profile_dir: str = "data/chrome_profile"
     recovery_enabled: bool = True
 
     def validate(self) -> None:
-        if self.visibility not in SUPPORTED_BROWSER_MODES:
-            raise ConfigurationError(
-                f"Invalid browser visibility '{self.visibility}'. Must be one of: {sorted(SUPPORTED_BROWSER_MODES)}"
-            )
         if not self.cdp_url or not isinstance(self.cdp_url, str):
             raise ConfigurationError("cdp_url must be a non-empty string.")
 
@@ -352,24 +344,10 @@ def load_config(
     # 2. Browser Config
     use_cdp = _str_to_bool(br_overrides.get("use_cdp", env.get("USE_CDP")), default=True)
     cdp_url = br_overrides.get("cdp_url", env.get("CDP_URL", "http://127.0.0.1:9222"))
-    
-    default_vis = "visible" if use_cdp else "hidden"
-    vis_env = env.get("BROWSER_VISIBILITY", env.get("HEADLESS", ""))
-    if vis_env:
-        vis_env_lower = vis_env.strip().lower()
-        if vis_env_lower in ("visible", "false", "0"):
-            default_vis = "visible"
-        elif vis_env_lower in ("hidden", "true", "1"):
-            default_vis = "hidden"
-        else:
-            default_vis = vis_env_lower
-    
-    vis = br_overrides.get("visibility", default_vis).lower()
     prof_dir = br_overrides.get("profile_dir", env.get("CHROME_PROFILE_DIR", "data/chrome_profile"))
     rec_enabled = _str_to_bool(br_overrides.get("recovery_enabled", env.get("BROWSER_RECOVERY_ENABLED")), default=True)
 
     browser_cfg = BrowserConfig(
-        visibility=vis,
         use_cdp=use_cdp,
         cdp_url=cdp_url,
         profile_dir=prof_dir,

@@ -38,7 +38,6 @@ MANAGED_KEYS: frozenset[str] = frozenset({
     "SCHEDULER_MAX_CONNECTS_PER_RUN",
     "SCHEDULER_MAX_FOLLOW_UPS_PER_RUN",
     # Browser
-    "BROWSER_VISIBILITY",
     "USE_CDP",
     "CDP_URL",
     # AI — primary

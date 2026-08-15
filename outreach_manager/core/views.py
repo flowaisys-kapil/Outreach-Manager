@@ -349,7 +349,6 @@ class DashboardView(View):
             if not active_days:
                 active_days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
-            browser_visibility = request.POST.get("browser_visibility", "hidden").strip().lower()
             enabled_workflows = request.POST.getlist("enabled_workflows")
             if not enabled_workflows:
                 enabled_workflows = ["connect", "reply", "follow_up", "first_message", "check_pending", "extract_leads", "email"]
@@ -454,7 +453,6 @@ class DashboardView(View):
                 "WORKING_HOURS_START": str(working_start_hour),
                 "WORKING_HOURS_END": str(working_end_hour),
                 "ACTIVE_DAYS": ",".join(active_days),
-                "BROWSER_VISIBILITY": browser_visibility,
                 "ENABLED_WORKFLOWS": ",".join(enabled_workflows),
                 "PRIMARY_AI_PROVIDER": primary_provider,
                 "AI_MODEL": primary_model,

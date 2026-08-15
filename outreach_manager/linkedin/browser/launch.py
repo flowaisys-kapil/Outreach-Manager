@@ -233,13 +233,11 @@ def start_browser_session(session):
         cookie_data = session.linkedin_profile.cookie_data
 
         storage_state = cookie_data if cookie_data else None
-        visibility = browser_cfg.visibility.lower()
-        is_headless = (visibility == "hidden")
-        logger.info("Launching Playwright browser (visibility=%s, headless=%s)...", visibility, is_headless)
+        logger.info("Launching Playwright browser session...")
 
         session.playwright = sync_playwright().start()
         session.browser = session.playwright.chromium.launch(
-            headless=is_headless,
+            headless=False,
             slow_mo=50,
         )
         session.context = session.browser.new_context(storage_state=storage_state)
