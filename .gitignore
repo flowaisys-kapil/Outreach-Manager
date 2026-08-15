@@ -24,3 +24,5 @@ archive/
 /media/
 .cache/
 tests/fixtures/pages/**/*.html
+clean_pycache.*
+create_desktop_shortcut.ps1

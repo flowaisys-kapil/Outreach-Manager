@@ -1,10 +1,10 @@
-# Outreach Manager v2.0
+# Outreach Manager v2.1
 
 > **Autonomous B2B Lead Discovery, Zero-Navigation Stealth Enrichment, Bayesian ML Qualification, and Multi-Turn Outreach Campaign Engine.**
 
-Outreach Manager v2.0 is a self-hosted, production-grade campaign execution engine built for B2B lead discovery, qualification, and automated outreach. Built with modern Python 3.12, Django 6.0 CRM, Playwright browser automation, and Bayesian machine learning, it enables growth teams, founders, and sales engineers to run targeted outreach campaigns with zero subscription lock-in, complete data privacy, and max-level account safety.
+Outreach Manager v2.1 is a self-hosted, production-grade campaign execution engine built for B2B lead discovery, qualification, and automated outreach. Built with modern Python 3.12, Django 6.0 CRM, Playwright browser automation, and Bayesian machine learning, it enables growth teams, founders, and sales engineers to run targeted outreach campaigns with zero subscription lock-in, complete data privacy, and max-level account safety.
 
-Unlike legacy automation tools that rely on static lists or aggressive profile scraping, Outreach Manager v2.0 operates as an intelligent agentic system. You define campaign objectives and buyer personas, and Outreach Manager handles the entire lifecycle — from zero-navigation search card discovery on LinkedIn and Bayesian ML qualification to personalized multi-turn messaging, status synchronization, and connection request lifecycle management.
+Unlike legacy automation tools that rely on static lists or aggressive profile scraping, Outreach Manager v2.1 operates as an intelligent agentic system. You define campaign objectives and buyer personas, and Outreach Manager handles the entire lifecycle — from zero-navigation search card discovery on LinkedIn and Bayesian ML qualification to personalized multi-turn messaging, status synchronization, and connection request lifecycle management.
 
 All deal states, message histories, telemetry logs, and browser sessions remain 100% under your control on your own infrastructure.
 
