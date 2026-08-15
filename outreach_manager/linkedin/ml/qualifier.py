@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/ml/qualifier.py
+# openoutreach/linkedin/ml/qualifier.py
 """GP Regression qualifier: BALD active learning via exact GP posterior."""
 from __future__ import annotations
 

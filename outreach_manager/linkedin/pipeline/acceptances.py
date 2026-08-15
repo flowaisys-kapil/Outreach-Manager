@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/pipeline/acceptances.py
+# openoutreach/linkedin/pipeline/acceptances.py
 import logging
 import random
 import time

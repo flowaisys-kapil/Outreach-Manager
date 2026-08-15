@@ -1,4 +1,4 @@
-# outreach_manager/crm/models/event_log.py
+# openoutreach/crm/models/event_log.py
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _

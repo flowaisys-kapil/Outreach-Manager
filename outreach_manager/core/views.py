@@ -1,4 +1,4 @@
-# outreach_manager/core/views.py
+# openoutreach/core/views.py
 import os
 import sys
 import subprocess
@@ -13,6 +13,8 @@ from django.db import models
 from django.core.paginator import Paginator
 
 from outreach_manager.core.models import Campaign, SiteConfig, Task
+from outreach_manager.core.config import get_config
+from outreach_manager.core import config_service as _cfg_svc
 from outreach_manager.crm.models.lead import Lead
 from outreach_manager.crm.models.deal import Deal, DealState, Outcome
 from outreach_manager.chat.models import ChatMessage
@@ -42,56 +44,13 @@ def get_log_tail(n=100):
         return f"Error reading log file: {str(e)}"
 
 def read_env_file():
-    env_path = os.path.join(settings.BASE_DIR, ".env")
-    data = {
-        "BACKUP_LLM_API_KEY": "",
-        "BACKUP_AI_MODEL": "",
-        "BACKUP_LLM_API_BASE": "",
-        "LLM_RATE_LIMIT_DELAY": "5.0",
-        "USE_CDP": "True",
-        "CDP_URL": "http://127.0.0.1:9222",
-    }
-    if os.path.exists(env_path):
-        try:
-            with open(env_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        k, v = line.split("=", 1)
-                        data[k.strip()] = v.strip()
-        except Exception:
-            pass
-    return data
+    """Return managed config keys from the live .env via ConfigurationService.
 
-def write_env_file(updates):
-    env_path = os.path.join(settings.BASE_DIR, ".env")
-    lines = []
-    existing = set()
-    if os.path.exists(env_path):
-        try:
-            with open(env_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    stripped = line.strip()
-                    if stripped and not stripped.startswith("#") and "=" in stripped:
-                        k, v = stripped.split("=", 1)
-                        k = k.strip()
-                        if k in updates:
-                            lines.append(f"{k}={updates[k]}\n")
-                            existing.add(k)
-                        else:
-                            lines.append(line)
-                    else:
-                        lines.append(line)
-        except Exception:
-            pass
-    for k, v in updates.items():
-        if k not in existing:
-            lines.append(f"{k}={v}\n")
-    try:
-        with open(env_path, "w", encoding="utf-8") as f:
-            f.writelines(lines)
-    except Exception as e:
-        logger.error("Failed to write to .env file: %s", e)
+    Kept for backward compatibility with template context that expects
+    ``env_config`` to be a dict.  New code should call
+    ``config_service.read_current_config()`` directly.
+    """
+    return _cfg_svc.read_current_config()
 
 class DashboardView(View):
     def get(self, request):
@@ -312,6 +271,7 @@ class DashboardView(View):
             "profile": profile,
             "site_config": site_config,
             "env_config": env_config,
+            "config": get_config(),
             "is_running": is_running,
             "seconds_left": seconds_left,
             "total_leads": total_leads,
@@ -345,7 +305,8 @@ class DashboardView(View):
 
     def post(self, request):
         action = request.POST.get("action")
-        campaign_id = request.POST.get("campaign_id") or request.GET.get("campaign_id")
+        campaign_id = request.POST.get("campaign_id")
+
         if campaign_id:
             campaign = Campaign.objects.filter(pk=campaign_id).first()
         else:
@@ -353,6 +314,205 @@ class DashboardView(View):
 
         profile = LinkedInProfile.objects.first()
         site_config = SiteConfig.load()
+
+        if action == "test_connection":
+            provider = request.POST.get("provider", "").strip()
+            model = request.POST.get("model", "").strip()
+            api_key = request.POST.get("api_key", "").strip()
+            api_base = request.POST.get("api_base", "").strip() or None
+
+            from outreach_manager.core.llm import test_provider_connection
+            is_ok, msg = test_provider_connection(provider=provider, model=model, api_key=api_key, api_base=api_base)
+            return JsonResponse({"success": is_ok, "message": msg, "error": "" if is_ok else msg})
+
+        elif action == "save_configuration":
+            from outreach_manager.core.config import get_config, reset_config, SUPPORTED_AI_PROVIDERS
+
+            # --- Extract input fields ---
+            campaign_obj_text = request.POST.get("campaign_objective", "").strip()
+            product_docs_text = request.POST.get("product_docs", "").strip()
+            booking_link_text = request.POST.get("booking_link", "").strip()
+
+            execution_mode = request.POST.get("execution_mode", "manual").strip().lower()
+            try:
+                sessions_per_day = int(request.POST.get("sessions_per_day", 1))
+            except ValueError:
+                sessions_per_day = 0
+
+            try:
+                working_start_hour = int(request.POST.get("working_start_hour", 9))
+                working_end_hour = int(request.POST.get("working_end_hour", 19))
+            except ValueError:
+                working_start_hour, working_end_hour = 9, 19
+
+            active_days = request.POST.getlist("active_days")
+            if not active_days:
+                active_days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+            browser_visibility = request.POST.get("browser_visibility", "hidden").strip().lower()
+            enabled_workflows = request.POST.getlist("enabled_workflows")
+            if not enabled_workflows:
+                enabled_workflows = ["connect", "reply", "follow_up", "first_message", "check_pending", "extract_leads", "email"]
+
+            try:
+                connect_limit = int(request.POST.get("connect_daily_limit", 20))
+                reply_limit = int(request.POST.get("reply_daily_limit", 40))
+                follow_up_limit = int(request.POST.get("follow_up_daily_limit", 30))
+                first_message_limit = int(request.POST.get("first_message_daily_limit", 20))
+                check_pending_limit = int(request.POST.get("check_pending_daily_limit", 50))
+                extract_leads_limit = int(request.POST.get("extract_leads_daily_limit", 100))
+                email_limit = int(request.POST.get("email_daily_limit", 30))
+            except ValueError:
+                connect_limit = reply_limit = follow_up_limit = first_message_limit = check_pending_limit = extract_leads_limit = email_limit = -1
+
+            session_history_enabled = request.POST.get("session_history_enabled") in ("1", "true", "on") or "session_history_enabled" in request.POST
+            ai_usage_tracking_enabled = request.POST.get("ai_usage_tracking_enabled") in ("1", "true", "on") or "ai_usage_tracking_enabled" in request.POST
+            notifications_enabled = request.POST.get("notifications_enabled") in ("1", "true", "on") or "notifications_enabled" in request.POST
+            notify_on_success = request.POST.get("notify_on_success") in ("1", "true", "on") or "notify_on_success" in request.POST
+            notify_on_warning = request.POST.get("notify_on_warning") in ("1", "true", "on") or "notify_on_warning" in request.POST
+            notify_on_failure = request.POST.get("notify_on_failure") in ("1", "true", "on") or "notify_on_failure" in request.POST
+            notify_on_info = request.POST.get("notify_on_info") in ("1", "true", "on") or "notify_on_info" in request.POST
+            notification_delivery_mode = request.POST.get("notification_delivery_mode", "toast").strip().lower()
+            color_enabled = request.POST.get("color_enabled") in ("1", "true", "on") or "color_enabled" in request.POST
+
+            primary_provider = request.POST.get("primary_provider", "google").strip().lower()
+            primary_model = request.POST.get("primary_model", "").strip()
+            primary_api_key = request.POST.get("primary_api_key", "").strip()
+            primary_api_base = request.POST.get("primary_api_base", "").strip()
+
+            fallback_provider = request.POST.get("fallback_provider", "").strip().lower()
+            fallback_model = request.POST.get("fallback_model", "").strip()
+            fallback_api_key = request.POST.get("fallback_api_key", "").strip()
+            fallback_api_base = request.POST.get("fallback_api_base", "").strip()
+
+            try:
+                rate_limit_delay = float(request.POST.get("rate_limit_delay", 3.0))
+            except ValueError:
+                rate_limit_delay = -1.0
+
+            enable_fallback = request.POST.get("enable_fallback") in ("1", "true", "on") or "enable_fallback" in request.POST
+            structured_output = request.POST.get("structured_output") in ("1", "true", "on") or "structured_output" in request.POST
+
+            # --- Validation ---
+            errors = []
+            if not (1 <= sessions_per_day <= 5):
+                errors.append("Sessions per day must be an integer between 1 and 5.")
+            if working_start_hour < 0 or working_end_hour > 24 or working_start_hour >= working_end_hour:
+                errors.append("Working start hour must be strictly earlier than working end hour.")
+            if any(l <= 0 for l in (connect_limit, reply_limit, follow_up_limit, first_message_limit, check_pending_limit, extract_leads_limit, email_limit)):
+                errors.append("Daily workflow limits must be positive integers.")
+            if primary_provider not in SUPPORTED_AI_PROVIDERS:
+                errors.append(f"Invalid primary provider '{primary_provider}'.")
+            if enable_fallback and fallback_provider and fallback_provider != "none":
+                if fallback_provider not in SUPPORTED_AI_PROVIDERS:
+                    errors.append(f"Invalid fallback provider '{fallback_provider}'.")
+                if fallback_provider == primary_provider:
+                    errors.append("Fallback provider cannot be identical to primary provider.")
+            if rate_limit_delay < 0:
+                errors.append("Rate limit delay must be a non-negative number.")
+
+            if errors:
+                error_str = "Validation failed: " + "; ".join(errors)
+                if request.headers.get("x-requested-with") == "XMLHttpRequest" or request.content_type == "application/json":
+                    return JsonResponse({"success": False, "error": error_str})
+                messages.error(request, error_str)
+                if campaign:
+                    return redirect(f"/?campaign_id={campaign.pk}")
+                return redirect("/")
+
+            # --- Persist Settings ---
+            if campaign:
+                campaign.campaign_objective = campaign_obj_text
+                campaign.product_docs = product_docs_text
+                campaign.booking_link = booking_link_text
+                campaign.save()
+
+                seeds_text = request.POST.get("seeds_text", "").strip()
+                if seeds_text:
+                    from outreach_manager.linkedin.setup.seeds import create_seed_leads, parse_seed_urls
+                    public_ids = parse_seed_urls(seeds_text)
+                    if public_ids:
+                        created = create_seed_leads(campaign, public_ids)
+                        messages.success(request, f"Successfully seeded {created} target profiles.")
+                    else:
+                        messages.warning(request, "No valid LinkedIn URLs found in seed field.")
+
+            if profile:
+                profile.connect_daily_limit = connect_limit
+                profile.follow_up_daily_limit = follow_up_limit
+                profile.save()
+
+            site_config.ai_model = primary_model
+            site_config.llm_api_key = primary_api_key
+            site_config.llm_api_base = primary_api_base
+            site_config.last_config_save = timezone.now()
+            site_config.save()
+
+            env_updates = {
+                "EXECUTION_MODE": execution_mode,
+                "SESSIONS_PER_DAY": str(sessions_per_day),
+                "WORKING_HOURS_START": str(working_start_hour),
+                "WORKING_HOURS_END": str(working_end_hour),
+                "ACTIVE_DAYS": ",".join(active_days),
+                "BROWSER_VISIBILITY": browser_visibility,
+                "ENABLED_WORKFLOWS": ",".join(enabled_workflows),
+                "PRIMARY_AI_PROVIDER": primary_provider,
+                "AI_MODEL": primary_model,
+                "LLM_API_KEY": primary_api_key,
+                "LLM_API_BASE": primary_api_base,
+                "FALLBACK_AI_PROVIDER": fallback_provider if (enable_fallback and fallback_provider != "none") else "",
+                "BACKUP_AI_MODEL": fallback_model,
+                "BACKUP_LLM_API_KEY": fallback_api_key,
+                "BACKUP_LLM_API_BASE": fallback_api_base,
+                "LLM_RATE_LIMIT_DELAY": str(rate_limit_delay),
+                "BACKUP_STRUCTURED_OUTPUT_COMPATIBLE": str(structured_output),
+                "BACKUP_MODEL_STRUCTURED_OUTPUT_COMPATIBLE": str(structured_output),
+                "SESSION_HISTORY_ENABLED": str(session_history_enabled),
+                "AI_USAGE_TRACKING_ENABLED": str(ai_usage_tracking_enabled),
+                "NOTIFICATIONS_ENABLED": str(notifications_enabled),
+                "NOTIFY_ON_SUCCESS": str(notify_on_success),
+                "NOTIFY_ON_WARNING": str(notify_on_warning),
+                "NOTIFY_ON_FAILURE": str(notify_on_failure),
+                "NOTIFY_ON_INFO": str(notify_on_info),
+                "NOTIFICATION_DELIVERY_MODE": notification_delivery_mode,
+                "DEFAULT_CONNECT_DAILY_LIMIT": str(connect_limit),
+                "DEFAULT_REPLY_DAILY_LIMIT": str(reply_limit),
+                "DEFAULT_FOLLOW_UP_DAILY_LIMIT": str(follow_up_limit),
+                "DEFAULT_FIRST_MESSAGE_DAILY_LIMIT": str(first_message_limit),
+                "DEFAULT_CHECK_PENDING_DAILY_LIMIT": str(check_pending_limit),
+                "DEFAULT_EXTRACT_LEADS_DAILY_LIMIT": str(extract_leads_limit),
+                "DEFAULT_EMAIL_DAILY_LIMIT": str(email_limit),
+            }
+            # --- Persist via ConfigurationService (validate → atomic write → backup → reload) ---
+            from outreach_manager.core.config import ConfigurationError
+            try:
+                _cfg_svc.save(env_updates)
+            except ConfigurationError as cfg_err:
+                err_msg = f"Validation failed: {cfg_err}"
+                if request.headers.get("x-requested-with") == "XMLHttpRequest" or request.content_type == "application/json":
+                    return JsonResponse({"success": False, "error": err_msg})
+                messages.error(request, err_msg)
+                if campaign:
+                    return redirect(f"/?campaign_id={campaign.pk}")
+                return redirect("/")
+
+            if execution_mode == "manual":
+                from outreach_manager.core.windows_scheduler import remove_windows_scheduled_task
+                remove_windows_scheduled_task()
+            elif execution_mode == "automatic":
+                from outreach_manager.core.windows_scheduler import update_windows_scheduled_task
+                try:
+                    update_windows_scheduled_task(timezone.now())
+                except Exception as e:
+                    logger.warning("Could not register Windows task: %s", e)
+
+            if request.headers.get("x-requested-with") == "XMLHttpRequest" or request.content_type == "application/json":
+                return JsonResponse({"success": True, "message": "Configuration saved successfully.", "last_saved": "Just now"})
+
+            messages.success(request, "Configuration saved successfully.")
+            if campaign:
+                return redirect(f"/?campaign_id={campaign.pk}")
+            return redirect("/")
 
         if action == "set_override":
             task = request.POST.get("task", "").strip()
@@ -584,22 +744,318 @@ class DashboardView(View):
                 messages.error(request, "No LinkedIn profile found.")
 
         elif action == "update_ai":
-            # Save SiteConfig
-            site_config.ai_model = request.POST.get("ai_model", "").strip()
-            site_config.llm_api_key = request.POST.get("llm_api_key", "").strip()
-            site_config.llm_api_base = request.POST.get("llm_api_base", "").strip()
-            site_config.save()
-            
-            # Save .env
+            primary_model = request.POST.get("ai_model", "").strip()
+            primary_api_key = request.POST.get("llm_api_key", "").strip()
+            primary_api_base = request.POST.get("llm_api_base", "").strip()
+
+            from outreach_manager.core.config import _infer_provider
+            primary_provider = _infer_provider(primary_model, "google")
+
             env_updates = {
+                "PRIMARY_AI_PROVIDER": primary_provider,
+                "AI_MODEL": primary_model,
+                "LLM_API_KEY": primary_api_key,
+                "LLM_API_BASE": primary_api_base,
                 "BACKUP_LLM_API_KEY": request.POST.get("backup_llm_api_key", "").strip(),
                 "BACKUP_AI_MODEL": request.POST.get("backup_ai_model", "").strip(),
                 "BACKUP_LLM_API_BASE": request.POST.get("backup_llm_api_base", "").strip(),
-                "LLM_RATE_LIMIT_DELAY": request.POST.get("llm_rate_limit_delay", "5.0").strip(),
+                "LLM_RATE_LIMIT_DELAY": request.POST.get("llm_rate_limit_delay", "3.0").strip(),
             }
-            write_env_file(env_updates)
+            site_config.ai_model = primary_model
+            site_config.llm_api_key = primary_api_key
+            site_config.llm_api_base = primary_api_base
+            site_config.last_config_save = timezone.now()
+            site_config.save()
+
+            _cfg_svc.save(env_updates)
             messages.success(request, "AI and LLM configurations updated successfully.")
 
         if campaign:
             return redirect(f"/?campaign_id={campaign.pk}")
         return redirect("/")
+
+
+class SessionHistoryView(View):
+    """Dedicated view for browsing, inspecting, and filtering completed outreach session history."""
+
+    def get(self, request):
+        import datetime
+        from django.db.models import Avg, Q
+        from outreach_manager.core.models import SessionHistory, Campaign
+        from outreach_manager.core.config import get_config
+
+        qs = SessionHistory.objects.all().prefetch_related("ai_usage").order_by("-start_time")
+
+        # --- Filters ---
+        status_filter = request.GET.get("status", "").strip().lower()
+        if status_filter:
+            if status_filter == "completed":
+                qs = qs.filter(status__iexact="Completed")
+            elif status_filter in ("issues", "completed_with_issues"):
+                qs = qs.filter(status__icontains="Completed with Errors")
+            elif status_filter == "failed":
+                qs = qs.filter(Q(status__iexact="Failed") | Q(fatal_errors__gt=0))
+            elif status_filter in ("no_work", "skipped"):
+                qs = qs.filter(Q(status__icontains="Skipped") | Q(actions_completed=0))
+
+        mode_filter = request.GET.get("execution_mode", "").strip().lower()
+        if mode_filter in ("manual", "automatic"):
+            qs = qs.filter(execution_mode__iexact=mode_filter)
+
+        provider_filter = request.GET.get("provider", "").strip().lower()
+        if provider_filter:
+            qs = qs.filter(ai_usage__primary_provider__iexact=provider_filter)
+
+        search_query = request.GET.get("q", "").strip()
+        if search_query:
+            qs = qs.filter(session_id__icontains=search_query)
+
+        start_date_str = request.GET.get("start_date", "").strip()
+        if start_date_str:
+            try:
+                s_date = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
+                qs = qs.filter(start_time__date__gte=s_date)
+            except ValueError:
+                pass
+
+        end_date_str = request.GET.get("end_date", "").strip()
+        if end_date_str:
+            try:
+                e_date = datetime.datetime.strptime(end_date_str, "%Y-%m-%d").date()
+                qs = qs.filter(start_time__date__lte=e_date)
+            except ValueError:
+                pass
+
+        # --- Summary Cards (4 Cards max for recent stats) ---
+        total_sessions = qs.count()
+        if total_sessions > 0:
+            successful_count = qs.filter(Q(status__iexact="Completed") | Q(total_errors=0)).count()
+            success_rate = round((successful_count / total_sessions) * 100)
+            avg_duration_sec = qs.aggregate(Avg("duration_seconds"))["duration_seconds__avg"] or 0.0
+            avg_actions = round(qs.aggregate(Avg("actions_completed"))["actions_completed__avg"] or 0.0, 1)
+        else:
+            success_rate = 100
+            avg_duration_sec = 0.0
+            avg_actions = 0.0
+
+        if avg_duration_sec >= 60:
+            avg_duration_str = f"{int(avg_duration_sec // 60)} min"
+        else:
+            avg_duration_str = f"{int(avg_duration_sec)}s"
+
+        # --- Pagination (20 per page) ---
+        paginator = Paginator(qs, 20)
+        page_number = request.GET.get("page", 1)
+        sessions_page = paginator.get_page(page_number)
+
+        sessions_data = []
+        for s in sessions_page:
+            ai_log = s.ai_usage.first()
+            p_name = ai_log.primary_provider if ai_log and ai_log.primary_provider else "google"
+
+            dur_sec = int(s.duration_seconds or 0)
+            if dur_sec >= 60:
+                dur_str = f"{dur_sec // 60}m {dur_sec % 60}s"
+            else:
+                dur_str = f"{dur_sec}s"
+
+            st_lower = s.status.lower()
+            if "completed with" in st_lower or s.total_errors > 0:
+                badge_type = "warning"
+                badge_text = "🟡 " + s.status
+            elif st_lower == "failed" or s.fatal_errors > 0:
+                badge_type = "danger"
+                badge_text = "🔴 " + s.status
+            elif "skipped" in st_lower or s.actions_completed == 0:
+                badge_type = "secondary"
+                badge_text = "⚪ " + s.status
+            else:
+                badge_type = "success"
+                badge_text = "🟢 Completed"
+
+            sessions_data.append({
+                "object": s,
+                "session_id": s.session_id,
+                "start_time": s.start_time,
+                "finish_time": s.finish_time,
+                "duration_str": dur_str,
+                "execution_mode": s.execution_mode.capitalize(),
+                "actions_completed": s.actions_completed,
+                "primary_provider": p_name.capitalize(),
+                "total_errors": s.total_errors,
+                "status": s.status,
+                "badge_type": badge_type,
+                "badge_text": badge_text,
+            })
+
+        pid_file = os.path.join(settings.BASE_DIR, "data", "daemon.pid")
+        is_running = False
+        if os.path.exists(pid_file):
+            try:
+                with open(pid_file, "r") as f:
+                    pid = int(f.read().strip())
+                is_running = is_pid_running(pid)
+            except Exception:
+                pass
+
+        all_campaigns = Campaign.objects.all()
+        campaign = Campaign.objects.first()
+
+        context = {
+            "sessions_page": sessions_page,
+            "sessions_data": sessions_data,
+            "total_sessions": total_sessions,
+            "success_rate": success_rate,
+            "avg_duration_str": avg_duration_str,
+            "avg_actions": avg_actions,
+            "status_filter": status_filter,
+            "mode_filter": mode_filter,
+            "provider_filter": provider_filter,
+            "start_date": start_date_str,
+            "end_date": end_date_str,
+            "search_query": search_query,
+            "all_campaigns": all_campaigns,
+            "campaign": campaign,
+            "is_running": is_running,
+            "config": get_config(),
+            "active_tab": "session_history",
+        }
+        return render(request, "core/session_history.html", context)
+
+
+class SessionDetailView(View):
+    """Detailed view and JSON endpoint for inspecting a single outreach session."""
+
+    def get(self, request, session_id):
+        from outreach_manager.core.models import SessionHistory, AIUsageLog, ProviderHealth
+        from outreach_manager.crm.models.event_log import EventLog
+
+        session = SessionHistory.objects.filter(session_id=session_id).prefetch_related("ai_usage").first()
+        if not session:
+            return JsonResponse({"success": False, "error": "Session record not found."}, status=404)
+
+        ai_log = session.ai_usage.first()
+        primary_provider = (ai_log.primary_provider if ai_log and ai_log.primary_provider else "google").lower()
+        fallback_provider = ai_log.fallback_provider if ai_log and ai_log.fallback_provider else "None"
+        ai_calls = (ai_log.primary_calls + ai_log.fallback_calls) if ai_log else 0
+        fallback_used = (ai_log.fallback_calls > 0) if ai_log else False
+        provider_failures = ai_log.failed_calls if ai_log else 0
+
+        # Provider Health status
+        ph = ProviderHealth.objects.filter(provider_name__iexact=primary_provider).first()
+        if ph and ph.total_calls > 0:
+            rate = ph.success_rate
+            if rate >= 90.0:
+                ph_status = "🟢 Healthy"
+                ph_type = "success"
+            elif rate >= 50.0:
+                ph_status = "🟡 Intermittent Failures"
+                ph_type = "warning"
+            else:
+                ph_status = "🔴 Failing"
+                ph_type = "danger"
+        else:
+            ph_status = "🟢 Healthy"
+            ph_type = "success"
+
+        # Work Completed metrics
+        start_t = session.start_time
+        finish_t = session.finish_time or timezone.now()
+
+        event_logs = list(EventLog.objects.filter(created_at__range=(start_t, finish_t)))
+
+        connect_sent = sum(1 for e in event_logs if e.event_type == EventLog.EventType.CONNECT_REQUESTED)
+        connect_accepted = sum(1 for e in event_logs if e.event_type == EventLog.EventType.CONNECT_ACCEPTED)
+        first_messages = sum(1 for e in event_logs if e.event_type == EventLog.EventType.MESSAGE_SENT and "first" in e.detail.lower())
+        replies_sent = sum(1 for e in event_logs if e.event_type == EventLog.EventType.MESSAGE_SENT and "reply" in e.detail.lower())
+        follow_ups = sum(1 for e in event_logs if e.event_type == EventLog.EventType.MESSAGE_SENT and "follow" in e.detail.lower())
+        emails_sent = sum(1 for e in event_logs if e.event_type == EventLog.EventType.EMAIL_SENT)
+        pending_checked = sum(1 for e in event_logs if "check_pending" in e.detail.lower())
+        withdrawn_requests = sum(1 for e in event_logs if "withdraw" in e.detail.lower())
+        leads_extracted = sum(1 for e in event_logs if "extract" in e.detail.lower())
+
+        work_completed = []
+        if connect_sent > 0:
+            work_completed.append({"label": "Connection Requests Sent", "value": connect_sent})
+        if first_messages > 0:
+            work_completed.append({"label": "First Messages Sent", "value": first_messages})
+        if replies_sent > 0:
+            work_completed.append({"label": "Replies Sent", "value": replies_sent})
+        if follow_ups > 0:
+            work_completed.append({"label": "Follow-Ups Sent", "value": follow_ups})
+        if pending_checked > 0 or "check_pending" in session.workflows_executed:
+            work_completed.append({"label": "Pending Requests Checked", "value": max(pending_checked, 1)})
+        if connect_accepted > 0:
+            work_completed.append({"label": "Accepted Connections", "value": connect_accepted})
+        if withdrawn_requests > 0:
+            work_completed.append({"label": "Withdrawn Requests", "value": withdrawn_requests})
+        if leads_extracted > 0:
+            work_completed.append({"label": "Leads Extracted", "value": leads_extracted})
+        if emails_sent > 0:
+            work_completed.append({"label": "Emails Sent", "value": emails_sent})
+
+        if not work_completed and session.actions_completed > 0:
+            work_completed.append({"label": "Total Actions Completed", "value": session.actions_completed})
+
+        log_snippet = self._get_session_log_snippet(start_t, finish_t, session.session_id)
+
+        error_list = []
+        if session.deal_errors > 0:
+            error_list.append(f"{session.deal_errors} deal processing error(s) occurred.")
+        if session.workflow_errors > 0:
+            error_list.append(f"{session.workflow_errors} workflow error(s) encountered.")
+        if session.fatal_errors > 0:
+            error_list.append(f"{session.fatal_errors} fatal execution error(s).")
+        if session.browser_recoveries > 0:
+            error_list.append(f"Browser recovery was triggered {session.browser_recoveries} time(s).")
+        if session.llm_deferrals > 0:
+            error_list.append(f"AI provider deferrals occurred {session.llm_deferrals} time(s).")
+
+        dur_sec = int(session.duration_seconds or 0)
+        dur_str = f"{dur_sec // 60}m {dur_sec % 60}s" if dur_sec >= 60 else f"{dur_sec}s"
+
+        detail_data = {
+            "session_id": session.session_id,
+            "status": session.status,
+            "execution_mode": session.execution_mode.capitalize(),
+            "start_time": session.start_time.strftime("%Y-%m-%d %H:%M:%S") if session.start_time else "N/A",
+            "finish_time": session.finish_time.strftime("%Y-%m-%d %H:%M:%S") if session.finish_time else "N/A",
+            "duration_str": dur_str,
+            "work_completed": work_completed,
+            "workflows_executed": session.workflows_executed,
+            "workflows_disabled": session.workflows_disabled,
+            "workflows_skipped": session.workflows_skipped,
+            "primary_provider": primary_provider.capitalize(),
+            "fallback_provider": fallback_provider.capitalize(),
+            "ai_calls": ai_calls,
+            "fallback_used": fallback_used,
+            "provider_failures": provider_failures,
+            "provider_health_status": ph_status,
+            "provider_health_type": ph_type,
+            "deal_errors": session.deal_errors,
+            "workflow_errors": session.workflow_errors,
+            "fatal_errors": session.fatal_errors,
+            "browser_recoveries": session.browser_recoveries,
+            "llm_deferrals": session.llm_deferrals,
+            "total_errors": session.total_errors,
+            "error_list": error_list,
+            "log_snippet": log_snippet,
+        }
+
+        if request.headers.get("x-requested-with") == "XMLHttpRequest" or request.GET.get("format") == "json":
+            return JsonResponse({"success": True, "detail": detail_data})
+
+        return JsonResponse({"success": True, "detail": detail_data})
+
+    def _get_session_log_snippet(self, start_time, finish_time, session_id):
+        log_path = os.path.join(settings.BASE_DIR, "data", "outreach.log")
+        if not os.path.exists(log_path):
+            return "No execution log file found."
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()
+
+            recent = lines[-300:] if len(lines) > 300 else lines
+            return "".join(recent) if recent else "Log is empty."
+        except Exception as exc:
+            return f"Error reading log file: {str(exc)}"

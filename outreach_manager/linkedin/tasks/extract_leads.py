@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/tasks/extract_leads.py
+# openoutreach/linkedin/tasks/extract_leads.py
 """Batch workflow handler: pure read-only LinkedIn search extraction."""
 import logging
 from termcolor import colored
@@ -9,7 +9,7 @@ from outreach_manager.core.workflow_result import WorkflowResult
 logger = logging.getLogger(__name__)
 
 
-def handle_extract_leads(task, session, qualifiers) -> bool:
+def handle_extract_leads(task, session, qualifiers) -> WorkflowResult:
     """Searches LinkedIn for new leads via campaign keywords, qualifies all in batch, and saves to DB.
 
     Isolation Boundary:
@@ -18,16 +18,17 @@ def handle_extract_leads(task, session, qualifiers) -> bool:
     - NEVER sends connection requests or messages during this step.
     """
     campaign = session.campaign
-    logger.info(
-        "[%s] %s — Starting search extraction batch...",
-        campaign,
-        colored("▶ extract_leads", "magenta", attrs=["bold"])
-    )
+    logger.info("[%s] Extract Leads Workflow — Discovering candidates: active loop", campaign)
 
     qualifier = qualifiers.get(campaign.pk) if qualifiers else None
     if qualifier is None:
         logger.warning("[%s] extract_leads: no qualifier loaded — slot skipped", campaign)
-        return WorkflowResult()
+        return WorkflowResult(
+            processed_count=0,
+            skipped_count=1,
+            error_count=0,
+            errors=["No qualifier loaded for campaign"]
+        )
 
     extracted_count = 0
     errors_count = 0
@@ -37,11 +38,11 @@ def handle_extract_leads(task, session, qualifiers) -> bool:
         qualify_gen = _pools.qualify_source(session, qualifier)
         for extracted_pid in qualify_gen:
             if extracted_pid:
+                logger.info("[%s] Processing candidate: %s", campaign, extracted_pid)
+                logger.info("[%s] Action executed: Extracted & qualified new lead '%s'", campaign, extracted_pid)
+                # State synchronization is embedded within qualify_source (DB insert/upsert)
+                logger.info("[%s] State synchronized for: %s", campaign, extracted_pid)
                 extracted_count += 1
-                logger.info(
-                    "[%s] extract_leads SUCCESS: Extracted & qualified new lead '%s'",
-                    campaign, extracted_pid
-                )
     except Exception as e:
         from outreach_manager.core.llm import is_quota_error
         if is_quota_error(e):
@@ -56,14 +57,14 @@ def handle_extract_leads(task, session, qualifiers) -> bool:
             errors_list.append(f"extract_leads error: {e}")
 
     logger.info(
-        "[%s] Extract Leads Workflow — Extracted & Qualified: %d lead(s), Errors: %d",
+        "[%s] Extract Leads Workflow Complete — Processed: %d, Skipped: 0, Errors: %d",
         campaign, extracted_count, errors_count
     )
 
-    from outreach_manager.core.workflow_result import WorkflowResult
     return WorkflowResult(
         processed_count=extracted_count,
         skipped_count=0,
         error_count=errors_count,
         errors=errors_list,
+        metrics={"leads_extracted": extracted_count}
     )

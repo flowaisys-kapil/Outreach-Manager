@@ -1,4 +1,4 @@
-# outreach_manager/emails/bettercontact.py
+# openoutreach/emails/bettercontact.py
 """BetterContact email lookup — resolve a work email for a qualified lead.
 
 `resolve_email` is the public entry point: it submits the lookup and waits for

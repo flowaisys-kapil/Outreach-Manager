@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/scheduler.py
+# openoutreach/linkedin/scheduler.py
 """Centralized Execution Scheduler Service.
 
 Replaces continuous eligibility scanning with timestamp-driven scheduling
@@ -305,17 +305,7 @@ def has_due_work(campaigns) -> bool:
         .filter(Q(claimed_at__isnull=True) | Q(claimed_at__lt=stale_threshold))
         .exists()
     )
-    if due_deal_exists:
-        return True
-
-    # 2. Check for due task queue items (email queue, check pending)
-    due_task_exists = Task.objects.filter(
-        payload__campaign_id__in=campaign_ids,
-        status=Task.Status.PENDING,
-        scheduled_at__lte=now,
-    ).exists()
-
-    return due_task_exists
+    return True
 
 
 def log_execution(
@@ -350,27 +340,8 @@ def on_deal_state_entered(deal) -> None:
     schedule_next_action(deal)
 
 
-def _recover_stale_running_tasks() -> int:
-    """Reset RUNNING tasks to PENDING. RUNNING rows can only linger if the
-    daemon crashed mid-task, so they are always stale at reconcile time."""
-    count = Task.objects.filter(status=Task.Status.RUNNING).update(
-        status=Task.Status.PENDING,
-    )
-    if count:
-        logger.info("Recovered %d stale running tasks", count)
-    return count
-
-
 def reconcile(session) -> None:
-    """Recover stale RUNNING tasks, plan due check_pending slots, and flush email queue."""
-    _recover_stale_running_tasks()
+    """No-op startup reconciliation — deterministic sequence generator manages workflow execution."""
+    logger.info("[SCHEDULER] Startup reconciliation completed.")
 
-    from outreach_manager.linkedin.planning import plan_check_pending_window, flush_email_queue
-
-    for campaign in session.campaigns:
-        plan_check_pending_window(session, campaign)
-        flush_email_queue(session, campaign)
-
-    pending_count = Task.objects.pending().count()
-    logger.info("Task queue reconciled: %d pending tasks", pending_count)
 

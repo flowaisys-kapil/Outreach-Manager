@@ -1,4 +1,4 @@
-# outreach_manager/core/agents/follow_up.py
+# openoutreach/core/agents/follow_up.py
 """Follow-up agent: reads conversation, returns a structured decision.
 
 Single LLM call with structured output — no tool-calling loop.
@@ -98,23 +98,36 @@ def _humanize_age(when: datetime, now: datetime) -> str:
 
 
 def _format_recent_messages(messages: list, now: datetime) -> str:
-    """Render the last few ChatMessage rows as a timestamped transcript."""
+    """Render ChatMessage rows or dicts as a timestamped transcript."""
     if not messages:
         return "No recent messages."
     lines = []
     for m in messages:
-        content = (m.content or "").strip()
-        if not content:
-            continue
-        speaker = "Me" if m.is_outgoing else "Lead"
-        prefix = f"{speaker} ({_humanize_age(m.creation_date, now)})" if m.creation_date else speaker
-        lines.append(f"{prefix}: {content}")
+        if isinstance(m, dict):
+            content = (m.get("text") or "").strip()
+            if not content:
+                continue
+            speaker = "Me" if m.get("is_outgoing") else (m.get("sender") or "Lead")
+            lines.append(f"{speaker}: {content}")
+        else:
+            content = (getattr(m, "content", "") or "").strip()
+            if not content:
+                continue
+            speaker = "Me" if getattr(m, "is_outgoing", False) else "Lead"
+            dt = getattr(m, "creation_date", None)
+            prefix = f"{speaker} ({_humanize_age(dt, now)})" if dt else speaker
+            lines.append(f"{prefix}: {content}")
     return "\n".join(lines) or "No recent messages."
 
 
 def _days_since_last_outgoing(messages: list, now: datetime) -> int | None:
     """Whole days since the most recent outgoing message, or None if there are none."""
-    timestamps = [m.creation_date for m in messages if m.is_outgoing and m.creation_date]
+    timestamps = []
+    for m in messages:
+        is_out = m.get("is_outgoing") if isinstance(m, dict) else getattr(m, "is_outgoing", False)
+        ts = m.get("timestamp") if isinstance(m, dict) else getattr(m, "creation_date", None)
+        if is_out and ts and isinstance(ts, datetime):
+            timestamps.append(ts)
     if not timestamps:
         return None
     return max((now - max(timestamps)).days, 0)
@@ -124,7 +137,8 @@ def _count_unanswered_outgoing(messages: list) -> int:
     """Trailing run of outgoing messages with no lead reply after them."""
     count = 0
     for m in reversed(messages):
-        if m.is_outgoing:
+        is_out = m.get("is_outgoing") if isinstance(m, dict) else getattr(m, "is_outgoing", False)
+        if is_out:
             count += 1
         else:
             break
@@ -133,6 +147,8 @@ def _count_unanswered_outgoing(messages: list) -> int:
 
 def _log_chat_facts(public_id: str, deal) -> None:
     """Log the mem0 chat facts the agent is working with."""
+    if not deal:
+        return
     chat_facts = (deal.chat_summary or {}).get("facts", [])
     if not chat_facts:
         return
@@ -142,11 +158,9 @@ def _log_chat_facts(public_id: str, deal) -> None:
 
 
 def _load_recent_messages(deal, limit: int = RECENT_MESSAGES_WINDOW) -> list:
-    """Last `limit` ChatMessages for `deal`, in chronological order.
-
-    ChatMessages are LinkedIn DMs only; an email-routed deal never connected, so
-    this is empty for it — the email agent always composes a first touch.
-    """
+    """Last `limit` ChatMessages for `deal`, in chronological order."""
+    if not deal:
+        return []
     from outreach_manager.chat.models import ChatMessage
 
     qs = ChatMessage.objects.filter(deal=deal).order_by("-creation_date", "-pk")[:limit]
@@ -159,11 +173,12 @@ def _render_system_prompt(session, deal, recent_messages: list) -> str:
     from outreach_manager.core.agents.prompt import base_context, render
 
     now = timezone.now()
+    chat_facts = _format_facts(deal.chat_summary) if deal else "(none yet)"
     return render(
         "follow_up_agent.j2",
         **base_context(session, deal),
-        contact_email=session.linkedin_profile.linkedin_username,
-        chat_summary=_format_facts(deal.chat_summary),
+        contact_email=getattr(getattr(session, "linkedin_profile", None), "linkedin_username", ""),
+        chat_summary=chat_facts,
         recent_messages=_format_recent_messages(recent_messages, now),
         today=now.strftime("%Y-%m-%d"),
         days_since_last_outgoing=_days_since_last_outgoing(recent_messages, now),
@@ -171,25 +186,24 @@ def _render_system_prompt(session, deal, recent_messages: list) -> str:
     )
 
 
-def run_follow_up_agent(session, deal) -> FollowUpDecision:
+def run_follow_up_agent(session, deal=None, conversation_history: list[dict] | None = None) -> FollowUpDecision:
     """Read the LinkedIn conversation and return a structured follow-up decision.
 
-    Syncs chat first (folding new messages into ``deal.chat_summary``), then renders
-    the prompt from the Deal's persistent summaries plus a small recency window of
-    verbatim messages, and asks the LLM to decide. Email is a separate, single-shot
-    path — see ``core.agents.email_opener.compose_opener_email``.
+    Accepts `conversation_history` directly from LinkedIn live thread (LinkedIn-as-Source-of-Truth).
+    Can operate cleanly when `deal=None` if CRM record is missing.
     """
-    public_id = deal.lead.public_identifier
-    from outreach_manager.linkedin.db.chat import sync_conversation
+    public_id = getattr(getattr(deal, "lead", None), "public_identifier", None) or "lead"
 
-    # sync_conversation now returns ConversationSyncResult; we only need the
-    # side-effect here (new_messages folded into chat_summary). The full history
-    # for the LLM prompt is read directly from DB via _load_recent_messages.
-    sync_conversation(session, public_id)
-    deal.refresh_from_db(fields=["chat_summary", "profile_summary"])
-    _log_chat_facts(public_id, deal)
+    if conversation_history is not None:
+        recent = conversation_history[-RECENT_MESSAGES_WINDOW:]
+    else:
+        if deal is not None:
+            from outreach_manager.linkedin.db.chat import sync_conversation
+            sync_conversation(session, public_id)
+            deal.refresh_from_db(fields=["chat_summary", "profile_summary"])
+            _log_chat_facts(public_id, deal)
+        recent = _load_recent_messages(deal)
 
-    recent = _load_recent_messages(deal)
     system_prompt = _render_system_prompt(session, deal, recent)
 
     agent = Agent(

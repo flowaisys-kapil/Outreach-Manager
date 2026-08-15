@@ -1,4 +1,4 @@
-# outreach_manager/emails/icemail.py
+# openoutreach/emails/icemail.py
 """Parse IceMail's 'App Passwords' sheet, pasted from the exported XLS.
 
 The IceMail export is a multi-sheet XLS. The one we need is the **App Passwords**

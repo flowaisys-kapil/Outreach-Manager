@@ -19,12 +19,16 @@ class WorkflowResult:
 
     Every workflow handler must return a WorkflowResult so the Session
     Executor can accurately record deal-level successes and failures.
+
+    The optional ``metrics`` dict allows each workflow to surface
+    business-level outcome counts without making WorkflowResult workflow-specific.
     """
     processed_count: int = 0
     skipped_count: int = 0
     error_count: int = 0
     llm_deferrals_count: int = 0
     errors: list[str] = field(default_factory=list)
+    metrics: dict[str, int] = field(default_factory=dict)
 
     def __bool__(self) -> bool:
         """True when at least one deal was successfully processed."""

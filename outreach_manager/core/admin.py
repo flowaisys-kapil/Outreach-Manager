@@ -1,4 +1,4 @@
-# outreach_manager/core/admin.py
+# openoutreach/core/admin.py
 from django.contrib import admin
 
 from outreach_manager.core.models import Campaign, SiteConfig, Task

@@ -19,26 +19,34 @@ class ConversationSyncResult:
 
 
 def _get_lead_and_deal(session, public_identifier: str):
-    """Return (lead, deal) for a public identifier in the active campaign.
-
-    The conversation is owned by the Deal (per lead+campaign), so sync needs it.
-    Returns (lead, None) when no Deal exists yet — the caller skips the upsert.
-    """
+    """Return (lead, deal) for a public identifier in the active campaign."""
     from outreach_manager.crm.models import Deal, Lead
 
-    lead = Lead.objects.get(public_identifier=public_identifier)
+    lead, _ = Lead.objects.get_or_create(public_identifier=public_identifier)
+    campaign = getattr(session, "campaign", None)
     deal = (
-        Deal.objects.filter(lead=lead, campaign=session.campaign)
+        Deal.objects.filter(lead=lead, campaign=campaign)
         .select_related("lead")
         .first()
     )
+    if deal is None and campaign:
+        deal = Deal.objects.create(
+            lead=lead,
+            campaign=campaign,
+            stage="QUALIFIED",
+        )
     return lead, deal
 
 
 _CONVERSATION_URN_CACHE: dict[int, str] = {}
 
 
-def sync_conversation(session, public_identifier: str, allow_navigation: bool = False) -> ConversationSyncResult:
+def sync_conversation(
+    session,
+    public_identifier: str,
+    allow_navigation: bool = False,
+    conversation_urn: str | None = None,
+) -> ConversationSyncResult:
     """Fetch messages from Voyager API and upsert into ChatMessage.
 
     Returns a ConversationSyncResult with:
@@ -57,7 +65,13 @@ def sync_conversation(session, public_identifier: str, allow_navigation: bool = 
         logger.debug("sync: no deal for %s in %s — skipping", public_identifier, session.campaign)
         return ConversationSyncResult()
 
-    new_messages = _sync_from_api(session, public_identifier, deal, allow_navigation=allow_navigation)
+    new_messages = _sync_from_api(
+        session,
+        public_identifier,
+        deal,
+        allow_navigation=allow_navigation,
+        conversation_urn=conversation_urn,
+    )
 
     # Summary update is best-effort: failure must never erase persisted messages.
     try:
@@ -90,16 +104,26 @@ def _update_deal_chat_summary(session, deal, new_messages):
     )
 
 
-def _resolve_conversation_urn(session, api, deal, target_urn: str, mailbox_urn: str, allow_navigation: bool) -> str | None:
-    """Resolve conversation URN via memory cache, DB messages, or Voyager API (falling back to navigation only if allowed)."""
-    from linkedin_cli.actions.conversations import find_conversation_urn, find_conversation_urn_via_navigation
-    from outreach_manager.chat.models import ChatMessage
+def _resolve_conversation_urn(
+    session,
+    api,
+    deal,
+    target_urn: str,
+    mailbox_urn: str,
+    allow_navigation: bool,
+    explicit_conversation_urn: str | None = None,
+) -> str | None:
+    """Resolve conversation URN via explicit parameter, memory cache, DB messages, or Voyager API."""
+    if explicit_conversation_urn:
+        _CONVERSATION_URN_CACHE[deal.pk] = explicit_conversation_urn
+        return explicit_conversation_urn
 
     # 1. Memory cache
     if deal.pk in _CONVERSATION_URN_CACHE:
         return _CONVERSATION_URN_CACHE[deal.pk]
 
     # 2. Existing ChatMessage records
+    from outreach_manager.chat.models import ChatMessage
     existing_msg = ChatMessage.objects.filter(deal=deal, linkedin_urn__contains="fsd_conversation:").first()
     if existing_msg and "fsd_conversation:" in existing_msg.linkedin_urn:
         try:
@@ -111,6 +135,7 @@ def _resolve_conversation_urn(session, api, deal, target_urn: str, mailbox_urn: 
             pass
 
     # 3. Voyager API GraphQL scan
+    from linkedin_cli.actions.conversations import find_conversation_urn, find_conversation_urn_via_navigation
     try:
         conv_urn = find_conversation_urn(api, target_urn, mailbox_urn)
         if conv_urn:
@@ -132,7 +157,13 @@ def _resolve_conversation_urn(session, api, deal, target_urn: str, mailbox_urn: 
     return None
 
 
-def _sync_from_api(session, public_identifier: str, deal, allow_navigation: bool = False) -> list:
+def _sync_from_api(
+    session,
+    public_identifier: str,
+    deal,
+    allow_navigation: bool = False,
+    conversation_urn: str | None = None,
+) -> list:
     """Fetch messages from Voyager API and upsert into DB, scoped to `deal`.
 
     Returns the list of newly-created ``ChatMessage`` rows (in arrival order),
@@ -148,24 +179,25 @@ def _sync_from_api(session, public_identifier: str, deal, allow_navigation: bool
 
     lead = deal.lead
     target_urn = lead.get_urn(session)
-    mailbox_urn = session.self_profile["urn"]
+    mailbox_urn = session.self_profile.get("urn", "") if getattr(session, "self_profile", None) else ""
+    self_name = session.self_profile.get("full_name", "") if getattr(session, "self_profile", None) else ""
 
-    # Find conversation URN via cache / API / navigation
-    conversation_urn = _resolve_conversation_urn(session, api, deal, target_urn, mailbox_urn, allow_navigation=allow_navigation)
-    if not conversation_urn:
+    # Find conversation URN via explicit arg / cache / API / navigation
+    conv_urn = _resolve_conversation_urn(
+        session, api, deal, target_urn, mailbox_urn, allow_navigation=allow_navigation, explicit_conversation_urn=conversation_urn
+    )
+    if not conv_urn:
         logger.debug("sync: no conversation URN found for %s", public_identifier)
         return []
 
     # Fetch messages
     try:
-        raw = fetch_messages(api, conversation_urn)
+        raw = fetch_messages(api, conv_urn)
     except Exception as e:
         logger.warning("sync: fetch_messages failed for %s: %s", public_identifier, e)
         return []
 
     elements = raw.get("data", {}).get("messengerMessagesBySyncToken", {}).get("elements", [])
-
-    self_urn = session.self_profile["urn"]
     new_messages: list = []
 
     for msg in elements:
@@ -173,7 +205,15 @@ def _sync_from_api(session, public_identifier: str, deal, allow_navigation: bool
         if not parsed or not parsed["entityUrn"]:
             continue
 
-        is_outgoing = parsed["sender_host_urn"] == self_urn
+        sender_urn = parsed.get("sender_host_urn", "")
+        sender_name = parsed.get("sender_name", "")
+        is_outgoing = False
+        if mailbox_urn and sender_urn and (mailbox_urn in sender_urn or sender_urn in mailbox_urn):
+            is_outgoing = True
+        elif self_name and sender_name and self_name.lower() == sender_name.lower():
+            is_outgoing = True
+        elif sender_name and sender_name.lower() in ("me", "you"):
+            is_outgoing = True
 
         # Upsert by (deal, linkedin_urn): the conversation is per-deal.
         obj, created = ChatMessage.objects.update_or_create(

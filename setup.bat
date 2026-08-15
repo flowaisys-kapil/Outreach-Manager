@@ -57,15 +57,52 @@ if exist "data\django_stderr.log" (
 echo      [x] Preserved Chrome profile cache (data\chrome_profile)
 
 echo.
-echo [3/5] Re-creating database schema (migrations)...
-.venv\Scripts\python.exe manage.py migrate --no-input
+echo [3/5] Resolving Python virtual environment...
+set "PYTHON_EXE="
+
+if exist "%~dp0.venv\Scripts\python.exe" (
+    set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
+    "%~dp0.venv\Scripts\python.exe" -c "import django" >nul 2>nul
+    if errorlevel 1 (
+        echo Installing dependencies into .venv...
+        "%~dp0.venv\Scripts\python.exe" -m pip install -r "%~dp0requirements\base.txt"
+    )
+) else (
+    echo Virtual environment not found. Creating .venv...
+    python -m venv "%~dp0.venv" 2>nul || py -m venv "%~dp0.venv"
+    if exist "%~dp0.venv\Scripts\python.exe" (
+        set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
+        echo Installing dependencies into .venv...
+        "%~dp0.venv\Scripts\python.exe" -m pip install --upgrade pip >nul 2>&1
+        "%~dp0.venv\Scripts\python.exe" -m pip install -r "%~dp0requirements\base.txt"
+    )
+)
+
+
+
+if "%PYTHON_EXE%"=="" where python >nul 2>nul && set "PYTHON_EXE=python"
+if "%PYTHON_EXE%"=="" where py >nul 2>nul && set "PYTHON_EXE=py"
+
+if not "%PYTHON_EXE%"=="" goto :PYTHON_FOUND
+
+echo ERROR: Python environment could not be found or created.
+echo Please install Python 3.11+ and ensure it is in your PATH.
+pause
+exit /b 1
+
+:PYTHON_FOUND
+
+echo Re-creating database schema (migrations)...
+"%PYTHON_EXE%" manage.py migrate --no-input
 
 echo.
 echo [4/5] Launching Onboarding Wizard...
 echo Please follow the prompts to configure campaigns, products, objectives, and LLM keys.
 echo (Use Ctrl+B to go back, Ctrl+D to skip optional, Ctrl+C to cancel)
 echo ----------------------------------------------------------------------
-.venv\Scripts\python.exe manage.py rundaemon --exit-on-empty
+"%PYTHON_EXE%" manage.py rundaemon --exit-on-empty
+
+
 
 echo.
 echo ----------------------------------------------------------------------
@@ -80,3 +117,4 @@ if /i "%run_now%"=="y" (
     echo You can start the app later by running start.bat.
     pause
 )
+

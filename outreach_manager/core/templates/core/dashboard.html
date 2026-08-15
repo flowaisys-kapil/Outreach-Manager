@@ -767,14 +767,25 @@
             </div>
             {% endif %}
         </div>
+
+        <!-- Navigation Links -->
+        <nav style="display: flex; gap: 8px; align-items: center;">
+            <a href="/" style="color: {% if active_tab != 'session_history' %}var(--accent-color){% else %}var(--text-secondary){% endif %}; text-decoration: none; font-weight: 600; font-size: 0.9rem; padding: 6px 14px; border-radius: 8px; background: {% if active_tab != 'session_history' %}rgba(99, 102, 241, 0.15){% else %}transparent{% endif %}; border: 1px solid {% if active_tab != 'session_history' %}rgba(99, 102, 241, 0.3){% else %}transparent{% endif %}; transition: all 0.2s;">
+                Dashboard
+            </a>
+            <a href="/admin/" target="_blank" style="color: var(--text-secondary); text-decoration: none; font-weight: 500; font-size: 0.9rem; padding: 6px 14px; border-radius: 8px; transition: all 0.2s;">
+                CRM ↗
+            </a>
+            <a href="/history/" style="color: {% if active_tab == 'session_history' %}var(--accent-color){% else %}var(--text-secondary){% endif %}; text-decoration: none; font-weight: 600; font-size: 0.9rem; padding: 6px 14px; border-radius: 8px; background: {% if active_tab == 'session_history' %}rgba(99, 102, 241, 0.15){% else %}transparent{% endif %}; border: 1px solid {% if active_tab == 'session_history' %}rgba(99, 102, 241, 0.3){% else %}transparent{% endif %}; transition: all 0.2s;">
+                Session History
+            </a>
+        </nav>
+
         <div style="display: flex; gap: 16px; align-items: center;">
             <div class="status-badge">
                 <span class="status-dot {% if is_running %}active{% else %}idle{% endif %}"></span>
                 <span>{% if is_running %}Outreach Cycle Active{% else %}Daemon Idle{% endif %}</span>
             </div>
-            <a href="/admin/" target="_blank" class="btn-pill btn-secondary" style="padding: 8px 18px; font-size: 0.85rem;">
-                CRM Admin ↗
-            </a>
         </div>
     </header>
 
@@ -975,40 +986,336 @@
 
         </section>
 
-        <!-- Right Side: Configs & Campaign Settings -->
-        <section style="display: flex; flex-direction: column; gap: 24px; min-width: 0;">
+        <!-- Right Side: Configuration Center -->
+        <section style="display: flex; flex-direction: column; min-width: 0; height: 100%;">
             
-            <div class="card-outer">
-                <div class="card-inner">
-                    <h3 class="card-title">Campaign Settings</h3>
+            <div class="card-outer" style="height: 100%; display: flex; flex-direction: column; min-height: 0;">
+                <div class="card-inner" style="display: flex; flex-direction: column; gap: 16px; flex: 1; min-height: 0; overflow: hidden;">
+                    
+                    <!-- Configuration Center Header with Status Bar (Fixed at Top) -->
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; flex-shrink: 0;">
+                        <div>
+                            <h3 class="card-title" style="margin-bottom: 4px;">Configuration Center</h3>
+                            <div id="config-status-bar" style="font-size: 0.8rem; color: var(--text-secondary); display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <span>Last Saved: <span id="last-saved-time">{% if site_config.last_config_save %}{{ site_config.last_config_save|timesince }} ago{% else %}Never{% endif %}</span></span>
+                                <span id="unsaved-badge" style="display: none; background: rgba(239, 68, 68, 0.2); color: #f87171; padding: 2px 8px; border-radius: 12px; font-weight: 600; font-size: 0.75rem;">● Unsaved Changes</span>
+                                <span id="saved-badge" style="color: #4ade80; font-weight: 600; font-size: 0.75rem;">✓ All Changes Saved</span>
+                            </div>
+                        </div>
+                    </div>
 
-                    <form action="" method="post">
+                    <!-- Inline Validation Error Banner -->
+                    <div id="config-error-banner" style="display: none; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; padding: 10px 14px; border-radius: 8px; font-size: 0.825rem; flex-shrink: 0;"></div>
+
+                    <!-- Tabs Header (Fixed at Top) -->
+                    <div class="tabs-header" style="flex-shrink: 0;">
+                        <button type="button" class="tab-btn active" onclick="switchConfigTab(event, 'config-campaign-tab')">Campaign</button>
+                        <button type="button" class="tab-btn" onclick="switchConfigTab(event, 'config-runtime-tab')">Runtime</button>
+                        <button type="button" class="tab-btn" onclick="switchConfigTab(event, 'config-ai-tab')">AI</button>
+                    </div>
+
+                    <!-- Master Form (Scrolls if tab content is long, stays fit if short) -->
+                    <form id="config-center-form" action="" method="post" oninput="markUnsaved()" onchange="markUnsaved()" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; min-height: 0; padding-right: 4px;">
                         {% csrf_token %}
-                        <input type="hidden" name="action" value="update_campaign">
+                        <input type="hidden" name="action" value="save_configuration">
                         <input type="hidden" name="campaign_id" value="{{ campaign.pk }}">
-                        
-                        <div class="form-group">
-                            <label>Campaign Name</label>
-                            <input type="text" value="{{ campaign.name }}" disabled style="opacity: 0.6; cursor: not-allowed;">
+
+                        <!-- TAB 1: CAMPAIGN -->
+                        <div id="config-campaign-tab" class="config-tab-content active">
+                            <div class="form-group">
+                                <label>Campaign Name</label>
+                                <input type="text" value="{{ campaign.name }}" disabled style="opacity: 0.6; cursor: not-allowed;">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="campaign_objective">Outreach Objective</label>
+                                <textarea id="campaign_objective" name="campaign_objective" rows="4" placeholder="Goal, target audience, pitch angle...">{{ campaign.campaign_objective }}</textarea>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="product_docs">Product Info / Sales Copy Context</label>
+                                <textarea id="product_docs" name="product_docs" rows="6" placeholder="Key value props, offer details, objection handling context...">{{ campaign.product_docs }}</textarea>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="booking_link">Onboarding Booking Link</label>
+                                <input type="url" id="booking_link" name="booking_link" value="{{ campaign.booking_link }}" placeholder="https://cal.com/example">
+                            </div>
+
+                            <!-- Inject Outreach Targets (Seed Profile Injection) -->
+                            <h4 style="font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; margin-bottom: 12px; color: var(--accent-color); margin-top: 20px;">Inject Outreach Targets</h4>
+                            
+                            <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; margin-bottom: 14px;">
+                                <div class="form-group" style="margin-bottom: 10px;">
+                                    <label for="seeds_text" style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">LinkedIn Profile URLs (One per line)</label>
+                                    <textarea id="seeds_text" name="seeds_text" rows="4" placeholder="https://www.linkedin.com/in/username1&#10;https://www.linkedin.com/in/username2" style="font-family: var(--font-mono); font-size: 0.8rem;"></textarea>
+                                </div>
+                                <button type="submit" name="action" value="add_seeds" class="btn-pill btn-secondary" style="width: 100%; border-color: rgba(99, 102, 241, 0.4); color: var(--accent-color);">
+                                    <span>Seed Qualified Prospects</span>
+                                    <div class="btn-icon-circle">+</div>
+                                </button>
+                            </div>
                         </div>
 
-                        <div class="form-group">
-                            <label for="campaign_objective">Outreach Objective</label>
-                            <textarea id="campaign_objective" name="campaign_objective" rows="4">{{ campaign.campaign_objective }}</textarea>
+                        <!-- TAB 2: RUNTIME -->
+                        <div id="config-runtime-tab" class="config-tab-content" style="display: none;">
+                            
+                            <!-- Execution Mode -->
+                            <h4 style="font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; margin-bottom: 12px; color: var(--accent-color);">Execution</h4>
+                            <div class="form-group">
+                                <label>Execution Mode</label>
+                                <div style="display: flex; gap: 16px; margin-top: 6px;">
+                                    <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-weight: normal;">
+                                        <input type="radio" name="execution_mode" value="manual" {% if config.runtime.execution_mode == "manual" %}checked{% endif %}> Manual
+                                    </label>
+                                    <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-weight: normal;">
+                                        <input type="radio" name="execution_mode" value="automatic" {% if config.runtime.execution_mode == "automatic" %}checked{% endif %}> Automatic
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Scheduling -->
+                            <h4 style="font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; margin-bottom: 12px; color: var(--accent-color); margin-top: 18px;">Scheduling</h4>
+                            <div class="form-group">
+                                <label for="sessions_per_day">Sessions Per Day (1 – 5)</label>
+                                <input type="number" id="sessions_per_day" name="sessions_per_day" min="1" max="5" value="{{ config.runtime.sessions_per_day }}">
+                            </div>
+
+                            <div class="form-group">
+                                <label>Working Hours</label>
+                                <div style="display: flex; gap: 12px; align-items: center;">
+                                    <select name="working_start_hour" style="flex: 1; padding: 8px; border-radius: 6px; background: rgba(0,0,0,0.3); color: var(--text-primary); border: 1px solid var(--border-color);">
+                                        <option value="8" {% if config.runtime.working_windows.0.start == 8 %}selected{% endif %}>08:00</option>
+                                        <option value="9" {% if config.runtime.working_windows.0.start == 9 %}selected{% endif %}>09:00</option>
+                                        <option value="10" {% if config.runtime.working_windows.0.start == 10 %}selected{% endif %}>10:00</option>
+                                    </select>
+                                    <span>to</span>
+                                    <select name="working_end_hour" style="flex: 1; padding: 8px; border-radius: 6px; background: rgba(0,0,0,0.3); color: var(--text-primary); border: 1px solid var(--border-color);">
+                                        <option value="17" {% if config.runtime.working_windows.0.end == 17 %}selected{% endif %}>17:00</option>
+                                        <option value="18" {% if config.runtime.working_windows.0.end == 18 %}selected{% endif %}>18:00</option>
+                                        <option value="19" {% if config.runtime.working_windows.0.end == 19 %}selected{% endif %}>19:00</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Working Days</label>
+                                <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px;">
+                                    <label style="font-size: 0.8rem; cursor: pointer;"><input type="checkbox" name="active_days" value="monday" {% if "monday" in config.runtime.active_days %}checked{% endif %}> Mon</label>
+                                    <label style="font-size: 0.8rem; cursor: pointer;"><input type="checkbox" name="active_days" value="tuesday" {% if "tuesday" in config.runtime.active_days %}checked{% endif %}> Tue</label>
+                                    <label style="font-size: 0.8rem; cursor: pointer;"><input type="checkbox" name="active_days" value="wednesday" {% if "wednesday" in config.runtime.active_days %}checked{% endif %}> Wed</label>
+                                    <label style="font-size: 0.8rem; cursor: pointer;"><input type="checkbox" name="active_days" value="thursday" {% if "thursday" in config.runtime.active_days %}checked{% endif %}> Thu</label>
+                                    <label style="font-size: 0.8rem; cursor: pointer;"><input type="checkbox" name="active_days" value="friday" {% if "friday" in config.runtime.active_days %}checked{% endif %}> Fri</label>
+                                    <label style="font-size: 0.8rem; cursor: pointer;"><input type="checkbox" name="active_days" value="saturday" {% if "saturday" in config.runtime.active_days %}checked{% endif %}> Sat</label>
+                                    <label style="font-size: 0.8rem; cursor: pointer;"><input type="checkbox" name="active_days" value="sunday" {% if "sunday" in config.runtime.active_days %}checked{% endif %}> Sun</label>
+                                </div>
+                            </div>
+
+                            <!-- Browser -->
+                            <h4 style="font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; margin-bottom: 12px; color: var(--accent-color); margin-top: 18px;">Browser</h4>
+                            <div class="form-group">
+                                <label>Browser Visibility</label>
+                                <div style="display: flex; gap: 16px; margin-top: 6px;">
+                                    <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-weight: normal;">
+                                        <input type="radio" name="browser_visibility" value="visible" {% if config.browser.visibility == "visible" %}checked{% endif %}> Visible
+                                    </label>
+                                    <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-weight: normal;">
+                                        <input type="radio" name="browser_visibility" value="hidden" {% if config.browser.visibility == "hidden" %}checked{% endif %}> Hidden
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Workflow Controls -->
+                            <h4 style="font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; margin-bottom: 12px; color: var(--accent-color); margin-top: 18px;">Workflow Controls</h4>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px;">
+                                <label style="font-size: 0.85rem; cursor: pointer;"><input type="checkbox" name="enabled_workflows" value="connect" {% if "connect" in config.workflows.enabled_workflows %}checked{% endif %}> Connect</label>
+                                <label style="font-size: 0.85rem; cursor: pointer;"><input type="checkbox" name="enabled_workflows" value="reply" {% if "reply" in config.workflows.enabled_workflows %}checked{% endif %}> Reply</label>
+                                <label style="font-size: 0.85rem; cursor: pointer;"><input type="checkbox" name="enabled_workflows" value="follow_up" {% if "follow_up" in config.workflows.enabled_workflows %}checked{% endif %}> Follow-Up</label>
+                                <label style="font-size: 0.85rem; cursor: pointer;"><input type="checkbox" name="enabled_workflows" value="first_message" {% if "first_message" in config.workflows.enabled_workflows %}checked{% endif %}> First Message</label>
+                                <label style="font-size: 0.85rem; cursor: pointer;"><input type="checkbox" name="enabled_workflows" value="check_pending" {% if "check_pending" in config.workflows.enabled_workflows %}checked{% endif %}> Check Pending</label>
+                                <label style="font-size: 0.85rem; cursor: pointer;"><input type="checkbox" name="enabled_workflows" value="extract_leads" {% if "extract_leads" in config.workflows.enabled_workflows %}checked{% endif %}> Extract Leads</label>
+                                <label style="font-size: 0.85rem; cursor: pointer;"><input type="checkbox" name="enabled_workflows" value="email" {% if "email" in config.workflows.enabled_workflows %}checked{% endif %}> Email</label>
+                            </div>
+
+                            <!-- Daily Limits -->
+                            <h4 style="font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; margin-bottom: 12px; color: var(--accent-color); margin-top: 18px;">Daily Limits</h4>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                <div class="form-group">
+                                    <label for="connect_daily_limit">Connect</label>
+                                    <input type="number" id="connect_daily_limit" name="connect_daily_limit" value="{{ config.workflows.connect_daily_limit }}">
+                                </div>
+                                <div class="form-group">
+                                    <label for="reply_daily_limit">Reply</label>
+                                    <input type="number" id="reply_daily_limit" name="reply_daily_limit" value="{{ config.workflows.reply_daily_limit }}">
+                                </div>
+                                <div class="form-group">
+                                    <label for="follow_up_daily_limit">Follow-Up</label>
+                                    <input type="number" id="follow_up_daily_limit" name="follow_up_daily_limit" value="{{ config.workflows.follow_up_daily_limit }}">
+                                </div>
+                                <div class="form-group">
+                                    <label for="first_message_daily_limit">First Message</label>
+                                    <input type="number" id="first_message_daily_limit" name="first_message_daily_limit" value="{{ config.workflows.first_message_daily_limit }}">
+                                </div>
+                                <div class="form-group">
+                                    <label for="check_pending_daily_limit">Check Pending</label>
+                                    <input type="number" id="check_pending_daily_limit" name="check_pending_daily_limit" value="{{ config.workflows.check_pending_daily_limit }}">
+                                </div>
+                                <div class="form-group">
+                                    <label for="extract_leads_daily_limit">Extract Leads</label>
+                                    <input type="number" id="extract_leads_daily_limit" name="extract_leads_daily_limit" value="{{ config.workflows.extract_leads_daily_limit }}">
+                                </div>
+                                <div class="form-group">
+                                    <label for="email_daily_limit">Email</label>
+                                    <input type="number" id="email_daily_limit" name="email_daily_limit" value="{{ config.workflows.email_daily_limit }}">
+                                </div>
+                            </div>
+
+                            <!-- Notification Settings -->
+                            <h4 style="font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; margin-bottom: 12px; color: var(--accent-color); margin-top: 18px;">Notification Settings</h4>
+                            
+                            <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; margin-bottom: 14px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                    <label style="font-size: 0.85rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                                        <input type="checkbox" name="notifications_enabled" value="1" {% if config.diagnostics.notifications_enabled %}checked{% endif %}>
+                                        Enable Notifications
+                                    </label>
+                                </div>
+
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.825rem; margin-top: 8px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 8px;">
+                                    <label style="cursor: pointer;"><input type="checkbox" name="notify_on_success" value="1" {% if config.diagnostics.notify_on_success %}checked{% endif %}> Successful Sessions</label>
+                                    <label style="cursor: pointer;"><input type="checkbox" name="notify_on_warning" value="1" {% if config.diagnostics.notify_on_warning %}checked{% endif %}> Errors & Recoveries</label>
+                                    <label style="cursor: pointer;"><input type="checkbox" name="notify_on_failure" value="1" {% if config.diagnostics.notify_on_failure %}checked{% endif %}> Fatal Failures</label>
+                                    <label style="cursor: pointer;"><input type="checkbox" name="notify_on_info" value="1" {% if config.diagnostics.notify_on_info %}checked{% endif %}> Idle / No Work Sessions</label>
+                                </div>
+
+                                <div style="margin-top: 10px;">
+                                    <label for="notification_delivery_mode" style="font-size: 0.775rem; color: var(--text-secondary); display: block; margin-bottom: 4px;">Delivery Mode</label>
+                                    <select id="notification_delivery_mode" name="notification_delivery_mode" style="width: 100%; padding: 6px 10px; background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; font-size: 0.8rem;">
+                                        <option value="toast" {% if config.diagnostics.notification_delivery_mode == "toast" %}selected{% endif %}>Desktop Toast + Console</option>
+                                        <option value="console_only" {% if config.diagnostics.notification_delivery_mode == "console_only" %}selected{% endif %}>Console Only (Terminal)</option>
+                                        <option value="disabled" {% if config.diagnostics.notification_delivery_mode == "disabled" %}selected{% endif %}>Disabled</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <h4 style="font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; margin-bottom: 12px; color: var(--accent-color); margin-top: 14px;">Telemetry & Diagnostics</h4>
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                <label style="font-size: 0.85rem; cursor: pointer;"><input type="checkbox" name="session_history_enabled" value="1" {% if config.diagnostics.session_history_enabled %}checked{% endif %}> Session History</label>
+                                <label style="font-size: 0.85rem; cursor: pointer;"><input type="checkbox" name="ai_usage_tracking_enabled" value="1" {% if config.diagnostics.ai_usage_tracking_enabled %}checked{% endif %}> AI Usage Tracking</label>
+                                <label style="font-size: 0.85rem; cursor: pointer;"><input type="checkbox" name="color_enabled" value="1" {% if config.diagnostics.color_enabled %}checked{% endif %}> Colored Logs</label>
+                            </div>
+
                         </div>
 
-                        <div class="form-group">
-                            <label for="product_docs">Product Info / Sales Copy Context</label>
-                            <textarea id="product_docs" name="product_docs" rows="6">{{ campaign.product_docs }}</textarea>
+                        <!-- TAB 3: AI -->
+                        <div id="config-ai-tab" class="config-tab-content" style="display: none;">
+                            
+                            <!-- Primary Provider -->
+                            <h4 style="font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; margin-bottom: 12px; color: var(--accent-color);">Primary AI Provider</h4>
+                            
+                            <div class="form-group">
+                                <label for="primary_provider">Provider</label>
+                                <select id="primary_provider" name="primary_provider" onchange="updateModelDropdown('primary_provider', 'primary_model')" style="width: 100%; padding: 8px; border-radius: 6px; background: rgba(0,0,0,0.3); color: var(--text-primary); border: 1px solid var(--border-color);">
+                                    <option value="google" {% if config.ai.primary_provider == "google" %}selected{% endif %}>Google</option>
+                                    <option value="openai" {% if config.ai.primary_provider == "openai" %}selected{% endif %}>OpenAI</option>
+                                    <option value="anthropic" {% if config.ai.primary_provider == "anthropic" %}selected{% endif %}>Anthropic</option>
+                                    <option value="nvidia" {% if config.ai.primary_provider == "nvidia" %}selected{% endif %}>NVIDIA</option>
+                                    <option value="groq" {% if config.ai.primary_provider == "groq" %}selected{% endif %}>Groq</option>
+                                    <option value="mistral" {% if config.ai.primary_provider == "mistral" %}selected{% endif %}>Mistral</option>
+                                    <option value="cohere" {% if config.ai.primary_provider == "cohere" %}selected{% endif %}>Cohere</option>
+                                    <option value="openai_compatible" {% if config.ai.primary_provider == "openai_compatible" %}selected{% endif %}>OpenAI-Compatible</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="primary_model">Primary Model</label>
+                                <input type="text" id="primary_model" name="primary_model" value="{{ config.ai.primary_model }}" placeholder="google:gemini-1.5-flash">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="primary_api_key">Primary API Key</label>
+                                <div style="display: flex; gap: 8px;">
+                                    <input type="password" id="primary_api_key" name="primary_api_key" value="{{ config.ai.primary_api_key }}" style="flex: 1;">
+                                    <button type="button" class="btn-pill btn-secondary" onclick="togglePasswordVisibility('primary_api_key', this)" style="padding: 6px 12px; font-size: 0.75rem;">Reveal</button>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="primary_api_base">API Base URL (Optional)</label>
+                                <input type="text" id="primary_api_base" name="primary_api_base" value="{{ config.ai.primary_api_base|default:'' }}" placeholder="Default (e.g. https://api.openai.com/v1)">
+                            </div>
+
+                            <!-- Fallback Provider -->
+                            <h4 style="font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; margin-bottom: 12px; color: var(--accent-color); margin-top: 18px;">Fallback AI Provider</h4>
+                            
+                            <div class="form-group">
+                                <label style="cursor: pointer; display: inline-flex; align-items: center; gap: 6px; margin-bottom: 8px;">
+                                    <input type="checkbox" id="enable_fallback" name="enable_fallback" value="1" {% if config.ai.fallback_provider %}checked{% endif %} onchange="toggleFallbackSection()"> Enable Fallback Provider
+                                </label>
+                            </div>
+
+                            <div id="fallback-settings-section" style="{% if not config.ai.fallback_provider %}display: none;{% endif %}">
+                                <div class="form-group">
+                                    <label for="fallback_provider">Fallback Provider</label>
+                                    <select id="fallback_provider" name="fallback_provider" onchange="updateModelDropdown('fallback_provider', 'fallback_model')" style="width: 100%; padding: 8px; border-radius: 6px; background: rgba(0,0,0,0.3); color: var(--text-primary); border: 1px solid var(--border-color);">
+                                        <option value="none">None</option>
+                                        <option value="google" {% if config.ai.fallback_provider == "google" %}selected{% endif %}>Google</option>
+                                        <option value="openai" {% if config.ai.fallback_provider == "openai" %}selected{% endif %}>OpenAI</option>
+                                        <option value="anthropic" {% if config.ai.fallback_provider == "anthropic" %}selected{% endif %}>Anthropic</option>
+                                        <option value="nvidia" {% if config.ai.fallback_provider == "nvidia" %}selected{% endif %}>NVIDIA</option>
+                                        <option value="groq" {% if config.ai.fallback_provider == "groq" %}selected{% endif %}>Groq</option>
+                                        <option value="mistral" {% if config.ai.fallback_provider == "mistral" %}selected{% endif %}>Mistral</option>
+                                        <option value="cohere" {% if config.ai.fallback_provider == "cohere" %}selected{% endif %}>Cohere</option>
+                                        <option value="openai_compatible" {% if config.ai.fallback_provider == "openai_compatible" %}selected{% endif %}>OpenAI-Compatible</option>
+                                    </select>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="fallback_model">Fallback Model</label>
+                                    <input type="text" id="fallback_model" name="fallback_model" value="{{ config.ai.fallback_model|default:'' }}" placeholder="openai_compatible:meta/llama-3.1-8b-instruct">
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="fallback_api_key">Fallback API Key</label>
+                                    <div style="display: flex; gap: 8px;">
+                                        <input type="password" id="fallback_api_key" name="fallback_api_key" value="{{ config.ai.fallback_api_key|default:'' }}" style="flex: 1;">
+                                        <button type="button" class="btn-pill btn-secondary" onclick="togglePasswordVisibility('fallback_api_key', this)" style="padding: 6px 12px; font-size: 0.75rem;">Reveal</button>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="fallback_api_base">Fallback Base URL</label>
+                                    <input type="text" id="fallback_api_base" name="fallback_api_base" value="{{ config.ai.fallback_api_base|default:'' }}" placeholder="https://integrate.api.nvidia.com/v1">
+                                </div>
+                            </div>
+
+                            <!-- Test Connection Button -->
+                            <div style="margin-top: 14px; display: flex; align-items: center; gap: 12px;">
+                                <button type="button" class="btn-pill btn-secondary" onclick="testConnection()" style="padding: 8px 16px; font-size: 0.8rem;">
+                                    Test Connection
+                                </button>
+                                <span id="test-connection-result" style="font-size: 0.825rem; font-weight: 600;"></span>
+                            </div>
+
+                            <!-- AI Controls -->
+                            <h4 style="font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; margin-bottom: 12px; color: var(--accent-color); margin-top: 18px;">AI Controls</h4>
+
+                            <div class="form-group">
+                                <label for="rate_limit_delay">Rate Limit Delay (seconds)</label>
+                                <input type="number" step="0.1" id="rate_limit_delay" name="rate_limit_delay" value="{{ config.ai.rate_limit_delay }}">
+                            </div>
+
+                            <div class="form-group">
+                                <label style="cursor: pointer; font-size: 0.85rem;">
+                                    <input type="checkbox" name="structured_output" value="1" {% if config.ai.backup_structured_output_compatible %}checked{% endif %}> Structured Output Compatible
+                                </label>
+                            </div>
+
                         </div>
 
-                        <div class="form-group">
-                            <label for="booking_link">Onboarding Booking Link</label>
-                            <input type="url" id="booking_link" name="booking_link" value="{{ campaign.booking_link }}">
-                        </div>
-
-                        <button type="submit" class="btn-pill" style="width: 100%; margin-top: 10px;">
-                            <span>Save Campaign Settings</span>
+                        <!-- Global Save Button -->
+                        <button type="submit" class="btn-pill" style="width: 100%; margin-top: 20px;">
+                            <span>Save Configuration</span>
                             <div class="btn-icon-circle">✓</div>
                         </button>
                     </form>
@@ -1016,115 +1323,8 @@
                 </div>
             </div>
 
-            <!-- AI Configuration and LinkedIn Settings -->
-            <div class="card-outer">
-                <div class="card-inner">
-                    <div class="tabs-header">
-                        <button class="tab-btn active" onclick="switchTab(event, 'ai-tab')">AI Orchestration</button>
-                        <button class="tab-btn" onclick="switchTab(event, 'linkedin-tab')">LinkedIn Settings</button>
-                    </div>
-
-                    <!-- AI Orchestration Form -->
-                    <div id="ai-tab" class="tab-content active">
-                        <form action="" method="post">
-                            {% csrf_token %}
-                            <input type="hidden" name="action" value="update_ai">
-                            <input type="hidden" name="campaign_id" value="{{ campaign.pk }}">
-                            
-                            <h4 style="font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; margin-bottom: 12px; color: var(--accent-color)">Primary model (Gemini)</h4>
-                            
-                            <div class="form-group">
-                                <label for="ai_model">Gemini Model ID</label>
-                                <input type="text" id="ai_model" name="ai_model" value="{{ site_config.ai_model }}" placeholder="google:gemini-2.5-flash">
-                            </div>
-
-                            <div class="form-group">
-                                <label for="llm_api_key">Gemini API Key</label>
-                                <input type="password" id="llm_api_key" name="llm_api_key" value="{{ site_config.llm_api_key }}">
-                            </div>
-
-                            <h4 style="font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; margin-bottom: 12px; color: var(--accent-color); margin-top: 18px;">Secondary backup (NVIDIA Llama)</h4>
-
-                            <div class="form-group">
-                                <label for="backup_ai_model">NVIDIA Model ID</label>
-                                <input type="text" id="backup_ai_model" name="backup_ai_model" value="{{ env_config.BACKUP_AI_MODEL }}" placeholder="openai_compatible:meta/llama-3.1-8b-instruct">
-                            </div>
-
-                            <div class="form-group">
-                                <label for="backup_llm_api_key">NVIDIA API Key</label>
-                                <input type="password" id="backup_llm_api_key" name="backup_llm_api_key" value="{{ env_config.BACKUP_LLM_API_KEY }}">
-                            </div>
-
-                            <div class="form-group">
-                                <label for="backup_llm_api_base">NVIDIA Base URL</label>
-                                <input type="text" id="backup_llm_api_base" name="backup_llm_api_base" value="{{ env_config.BACKUP_LLM_API_BASE }}" placeholder="https://integrate.api.nvidia.com/v1">
-                            </div>
-
-                            <h4 style="font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; margin-bottom: 12px; color: var(--accent-color); margin-top: 18px;">Pacing Control</h4>
-
-                            <div class="form-group">
-                                <label for="llm_rate_limit_delay">Rate Limit Delay (seconds)</label>
-                                <input type="number" step="0.1" id="llm_rate_limit_delay" name="llm_rate_limit_delay" value="{{ env_config.LLM_RATE_LIMIT_DELAY }}">
-                                <span style="font-size: 0.75rem; color: var(--text-secondary)">Delay spacing between consecutive API model calls.</span>
-                            </div>
-
-                            <button type="submit" class="btn-pill" style="width: 100%; margin-top: 10px;">
-                                <span>Save AI Settings</span>
-                                <div class="btn-icon-circle">✓</div>
-                            </button>
-                        </form>
-                    </div>
-
-                    <!-- LinkedIn Settings Form (Limits & Seed Targets Merged) -->
-                    <div id="linkedin-tab" class="tab-content">
-                        <form action="" method="post" style="margin-bottom: 20px;">
-                            {% csrf_token %}
-                            <input type="hidden" name="action" value="update_linkedin">
-                            <input type="hidden" name="campaign_id" value="{{ campaign.pk }}">
-                            
-                            <h4 style="font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; margin-bottom: 12px; color: var(--accent-color)">Daily Activity Limits</h4>
-
-                            <div class="form-group">
-                                <label for="connect_daily_limit">Daily Connection Limit</label>
-                                <input type="number" id="connect_daily_limit" name="connect_daily_limit" value="{{ profile.connect_daily_limit }}">
-                            </div>
-
-                            <div class="form-group">
-                                <label for="follow_up_daily_limit">Daily Follow-Up Limit</label>
-                                <input type="number" id="follow_up_daily_limit" name="follow_up_daily_limit" value="{{ profile.follow_up_daily_limit }}">
-                            </div>
-
-                            <div style="background: rgba(255,193,7,0.05); border: 1px solid rgba(255,193,7,0.15); border-radius: 8px; padding: 10px; font-size: 0.8rem; color: #fbbf24; margin-bottom: 16px;">
-                                Safety Guard: Keep connection limits below 25/day to preserve account safety.
-                            </div>
-
-                            <button type="submit" class="btn-pill" style="width: 100%;">
-                                <span>Save Daily Limits</span>
-                                <div class="btn-icon-circle">✓</div>
-                            </button>
-                        </form>
-
-                        <h4 style="font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; margin-bottom: 12px; color: var(--accent-color); margin-top: 24px;">Inject Outreach Targets</h4>
-                        <form action="" method="post">
-                            {% csrf_token %}
-                            <input type="hidden" name="action" value="add_seeds">
-                            <input type="hidden" name="campaign_id" value="{{ campaign.pk }}">
-                            
-                            <div class="form-group">
-                                <label for="seeds_text">LinkedIn Profile URLs (One per line)</label>
-                                <textarea id="seeds_text" name="seeds_text" rows="5" placeholder="https://www.linkedin.com/in/username1&#10;https://www.linkedin.com/in/username2"></textarea>
-                            </div>
-                            
-                            <button type="submit" class="btn-pill" style="width: 100%;">
-                                <span>Seed Qualified Prospects</span>
-                                <div class="btn-icon-circle">+</div>
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-
         </section>
+
 
         <!-- Bottom Row: CRM Leads/Deals Table -->
         <section class="full-width-block">
@@ -1631,5 +1831,163 @@
             </form>
         </div>
     </div>
+
+    <script>
+        function switchConfigTab(evt, tabId) {
+            document.querySelectorAll('.config-tab-content').forEach(el => el.style.display = 'none');
+            document.querySelectorAll('#config-center-form .tabs-header .tab-btn').forEach(btn => btn.classList.remove('active'));
+            
+            const target = document.getElementById(tabId);
+            if (target) target.style.display = 'block';
+            if (evt && evt.currentTarget) evt.currentTarget.classList.add('active');
+        }
+
+        function togglePasswordVisibility(inputId, btnEl) {
+            const input = document.getElementById(inputId);
+            if (input) {
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    btnEl.innerText = 'Hide';
+                } else {
+                    input.type = 'password';
+                    btnEl.innerText = 'Reveal';
+                }
+            }
+        }
+
+        function toggleFallbackSection() {
+            const checkbox = document.getElementById('enable_fallback');
+            const section = document.getElementById('fallback-settings-section');
+            if (checkbox && section) {
+                section.style.display = checkbox.checked ? 'block' : 'none';
+            }
+        }
+
+        function markUnsaved() {
+            const unsavedBadge = document.getElementById('unsaved-badge');
+            const savedBadge = document.getElementById('saved-badge');
+            if (unsavedBadge) unsavedBadge.style.display = 'inline-block';
+            if (savedBadge) savedBadge.style.display = 'none';
+        }
+
+        const PROVIDER_DEFAULT_MODELS = {
+            google: "google:gemini-1.5-flash",
+            openai: "openai:gpt-4o",
+            anthropic: "anthropic:claude-3-5-sonnet-20241022",
+            nvidia: "openai_compatible:meta/llama-3.1-8b-instruct",
+            groq: "groq:llama-3.3-70b-versatile",
+            mistral: "mistral:mistral-large-latest",
+            cohere: "cohere:command-r-plus",
+            openai_compatible: "openai_compatible:custom-model"
+        };
+
+        function updateModelDropdown(providerSelectId, modelInputId) {
+            const providerSel = document.getElementById(providerSelectId);
+            const modelInput = document.getElementById(modelInputId);
+            if (providerSel && modelInput) {
+                const provider = providerSel.value;
+                if (PROVIDER_DEFAULT_MODELS[provider]) {
+                    modelInput.value = PROVIDER_DEFAULT_MODELS[provider];
+                }
+            }
+            markUnsaved();
+        }
+
+        function testConnection() {
+            const resultEl = document.getElementById('test-connection-result');
+            if (!resultEl) return;
+            resultEl.innerText = 'Testing connection...';
+            resultEl.style.color = '#fbbf24';
+
+            const provider = document.getElementById('primary_provider').value;
+            const model = document.getElementById('primary_model').value;
+            const apiKey = document.getElementById('primary_api_key').value;
+            const apiBase = document.getElementById('primary_api_base').value;
+
+            const formData = new FormData();
+            formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+            formData.append('action', 'test_connection');
+            formData.append('provider', provider);
+            formData.append('model', model);
+            formData.append('api_key', apiKey);
+            formData.append('api_base', apiBase);
+
+            fetch('', {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                body: formData
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    resultEl.innerText = '✓ Connected';
+                    resultEl.style.color = '#4ade80';
+                } else {
+                    resultEl.innerText = '✖ Failed: ' + (data.error || data.message || 'Connection check failed');
+                    resultEl.style.color = '#f87171';
+                }
+            })
+            .catch(err => {
+                resultEl.innerText = '✖ Failed: Network error';
+                resultEl.style.color = '#f87171';
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const form = document.getElementById('config-center-form');
+            if (!form) return;
+
+            form.addEventListener('submit', function(evt) {
+                evt.preventDefault();
+                const errBanner = document.getElementById('config-error-banner');
+                if (errBanner) {
+                    errBanner.style.display = 'none';
+                    errBanner.innerText = '';
+                }
+
+                const sessionsInput = document.getElementById('sessions_per_day');
+                if (sessionsInput) {
+                    const sessionsPerDay = parseInt(sessionsInput.value, 10);
+                    if (isNaN(sessionsPerDay) || sessionsPerDay < 1 || sessionsPerDay > 5) {
+                        if (errBanner) {
+                            errBanner.innerText = 'Validation failed: Sessions per day must be between 1 and 5.';
+                            errBanner.style.display = 'block';
+                        }
+                        return;
+                    }
+                }
+
+                const formData = new FormData(form);
+                fetch('', {
+                    method: 'POST',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    body: formData
+                })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        const unsavedBadge = document.getElementById('unsaved-badge');
+                        const savedBadge = document.getElementById('saved-badge');
+                        const lastSaved = document.getElementById('last-saved-time');
+                        if (unsavedBadge) unsavedBadge.style.display = 'none';
+                        if (savedBadge) savedBadge.style.display = 'inline-block';
+                        if (lastSaved) lastSaved.innerText = data.last_saved || 'Just now';
+                    } else {
+                        if (errBanner) {
+                            errBanner.innerText = data.error || 'Failed to save configuration.';
+                            errBanner.style.display = 'block';
+                        }
+                    }
+                })
+                .catch(err => {
+                    if (errBanner) {
+                        errBanner.innerText = 'Server error occurred while saving.';
+                        errBanner.style.display = 'block';
+                    }
+                });
+            });
+        });
+    </script>
 </body>
 </html>
+

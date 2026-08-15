@@ -1,4 +1,4 @@
-# outreach_manager/core/daemon.py
+# openoutreach/core/daemon.py
 """DEPRECATED DAEMON WRAPPER — Compatibility Entry Point.
 
 NOTE: As of Ticket 2 (Session Executor), the infinite daemon execution loop
@@ -46,6 +46,7 @@ def seconds_until_active(tz_name: str | None = None) -> float:
 
 
 def run_daemon(session, exit_on_empty: bool = False) -> SessionSummary:
-    """Compatibility entry point delegating daemon startup to Session Executor."""
-    logger.info("run_daemon invoked — delegating to Session Executor (single-session engine)...")
-    return run_session(session, exit_on_empty=exit_on_empty)
+    """Compatibility entry point delegating daemon startup to execution mode router."""
+    from outreach_manager.core.execution import start_execution
+    logger.info("run_daemon invoked — delegating to execution mode router...")
+    return start_execution(session, exit_on_empty=exit_on_empty)

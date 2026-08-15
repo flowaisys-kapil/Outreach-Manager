@@ -123,13 +123,18 @@ class TestBatchWorkflows:
         deal1 = self._make_deal(fake_session, "lead-cp-1", DealState.PENDING)
         deal2 = self._make_deal(fake_session, "lead-cp-2", DealState.PENDING)
 
-        Deal.objects.all().update(next_check_pending_at=timezone.now() - timedelta(days=1))
+        Deal.objects.all().update(
+            next_check_pending_at=timezone.now() - timedelta(days=1),
+            next_action_at=timezone.now() - timedelta(days=1),
+        )
 
-        with patch("outreach_manager.linkedin.pipeline.acceptances.check_acceptances_page", return_value={"lead-cp-1"}), \
+        with patch("outreach_manager.linkedin.pipeline.acceptances.sync_sent_invitations", return_value=[]), \
+             patch("outreach_manager.linkedin.pipeline.acceptances.check_acceptances_page", return_value={"lead-cp-1"}), \
              patch("outreach_manager.linkedin.tasks.check_pending._resolve_status_individually", return_value="PENDING"), \
              patch("outreach_manager.linkedin.pipeline.acceptances.run_withdrawals_check"):
 
             result = handle_check_pending(None, fake_session, qualifiers={})
+
 
             assert bool(result) is True
             deal1.refresh_from_db()

@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/setup/seeds.py
+# openoutreach/linkedin/setup/seeds.py
 """User-provided seed profiles: parse URLs, create Leads + QUALIFIED Deals."""
 from __future__ import annotations
 

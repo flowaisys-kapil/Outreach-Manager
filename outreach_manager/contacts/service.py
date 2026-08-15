@@ -1,4 +1,4 @@
-# outreach_manager/contacts/service.py
+# openoutreach/contacts/service.py
 """Central Contacts Store (hub) stub.
 
 Bypassed/disabled for privacy. All methods no-op.

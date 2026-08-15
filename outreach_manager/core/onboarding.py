@@ -1,4 +1,4 @@
-# outreach_manager/core/onboarding.py
+# openoutreach/core/onboarding.py
 """Onboarding: create Campaign + LinkedInProfile + LLM config in DB.
 
 Two ways to supply config:

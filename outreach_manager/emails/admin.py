@@ -1,4 +1,4 @@
-# outreach_manager/emails/admin.py
+# openoutreach/emails/admin.py
 from django.contrib import admin
 
 from outreach_manager.emails.models import Mailbox

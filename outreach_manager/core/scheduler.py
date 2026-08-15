@@ -1,4 +1,4 @@
-# outreach_manager/core/scheduler.py
+# openoutreach/core/scheduler.py
 """DEPRECATED PASSIVE WRAPPER — Legacy scheduler primitives and compatibility exports.
 
 DEPRECATION NOTICE:
@@ -7,7 +7,7 @@ or scheduling logic. All runtime execution scheduling is owned by ``outreach_man
 and all planning primitives reside in ``outreach_manager.linkedin.planning``.
 
 This file is maintained strictly as a passive backward-compatibility layer for existing tests.
-No runtime application code in ``outreach_manager/`` depends on this module.
+No runtime application code in ``openoutreach/`` depends on this module.
 """
 from __future__ import annotations
 

@@ -133,47 +133,52 @@ def disqualify_lead(public_id: str):
     lead.save(update_fields=["disqualified"])
 
 
-def discover_and_enrich(session, urls, source_keyword_id: Optional[int] = None):
-    """For each new URL, call Voyager API, create enriched Lead (with embedding).
+def discover_and_enrich(session, profiles_or_urls: list, source_keyword_id: Optional[int] = None):
+    """Enrich new lead profiles safely without opening profile pages repeatedly.
 
-    Skips URLs that already have a Lead, caps at enrich_max_per_page (DOM
-    order — LinkedIn's own relevance), and pauses a human-ish
-    [enrich_min_delay_seconds, enrich_max_delay_seconds] between scrapes.
-    source_keyword_id: if set, attributes each new Lead to that SearchKeyword
-    so the Yield Guard can track accurate qualification rates.
+    Uses zero-navigation search metadata to construct Lead rows, preventing high-volume
+    profile view detection on LinkedIn.
     """
     from linkedin_cli.api.client import PlaywrightLinkedinAPI
     from outreach_manager.core.conf import CAMPAIGN_CONFIG
 
-    new_urls = [u for u in urls if not lead_exists(u)]
-    if not new_urls:
+    items = []
+    for item in profiles_or_urls:
+        if isinstance(item, dict):
+            url = item.get("url")
+            if url and not lead_exists(url):
+                items.append(item)
+        elif isinstance(item, str):
+            if not lead_exists(item):
+                items.append({"url": item})
+
+    if not items:
         return
 
-    max_per_page = CAMPAIGN_CONFIG["enrich_max_per_page"]
-    if len(new_urls) > max_per_page:
-        new_urls = new_urls[:max_per_page]
+    max_per_page = CAMPAIGN_CONFIG.get("enrich_max_per_page", 5)
+    if len(items) > max_per_page:
+        items = items[:max_per_page]
 
-    logger.info("Discovered %d new profiles (%d total on page)", len(new_urls), len(urls))
+    logger.info("Discovered %d new profile(s) for zero-navigation enrichment", len(items))
 
-    min_delay = CAMPAIGN_CONFIG["enrich_min_delay_seconds"]
-    max_delay = CAMPAIGN_CONFIG["enrich_max_delay_seconds"]
-    session.ensure_browser()
+    min_delay = CAMPAIGN_CONFIG.get("enrich_min_delay_seconds", 10)
+    max_delay = CAMPAIGN_CONFIG.get("enrich_max_delay_seconds", 25)
     api = PlaywrightLinkedinAPI(session=session)
     enriched = 0
 
-    for url in new_urls:
+    for item in items:
+        url = item.get("url")
         public_id = url_to_public_id(url)
         if not public_id:
             continue
 
         try:
-            profile, _raw = api.get_profile(profile_url=url)
-        except Exception:
-            logger.warning("Voyager API failed for %s — skipping", url)
+            profile, _raw = api.get_profile(profile_url=url, search_profile=item, navigate=False)
+        except Exception as exc:
+            logger.warning("Profile extraction failed for %s (%s) — skipping", url, exc)
             continue
 
         if not profile:
-            logger.warning("Empty profile for %s — skipping", url)
             continue
 
         if create_enriched_lead(session, url, profile, source_keyword_id=source_keyword_id) is not None:
@@ -181,14 +186,15 @@ def discover_and_enrich(session, urls, source_keyword_id: Optional[int] = None):
 
         time.sleep(random.uniform(min_delay, max_delay))
 
-    logger.info("Enriched %d/%d new profiles", enriched, len(new_urls))
+    logger.info("Safely enriched %d/%d new profiles without extra page loads", enriched, len(items))
+
 
 
 def _cache_urn_from_profile(lead, profile: Dict[str, Any]):
     """Promote ``profile['urn']`` onto the Lead row if not already cached.
 
-    The only durable field we extract from a fresh scrape — everything
-    else lives in memory for the lifetime of the caller's dict.
+    The only durable field we extract from a fresh scrape -- everything
+    else lives in memory for the lifetime of the caller dictionary.
     """
     urn = profile.get("urn") or None
     if urn and lead.urn != urn:
@@ -197,16 +203,22 @@ def _cache_urn_from_profile(lead, profile: Dict[str, Any]):
 
 
 def register_self_lead(session, profile: Dict[str, Any]):
-    """Persist the logged-in member's own profile as a disqualified Lead.
+    """Persist the logged-in member own profile as a disqualified Lead.
 
-    The CRM-side layer over ``linkedin_cli``'s self-discovery primitive: marks
+    The CRM-side layer over linkedin_cli self-discovery primitive: marks
     the real profile disqualified (so auto-discovery never targets it) and links
-    it as ``linkedin_profile.self_lead``. Idempotent per profile.
+    it as linkedin_profile.self_lead. Idempotent per profile.
     """
     from outreach_manager.crm.models import Lead
 
-    public_id = profile["public_identifier"]
+    if not profile or not isinstance(profile, dict):
+        return
+    public_id = profile.get("public_identifier") or profile.get("public_id")
+    if not public_id:
+        logger.warning("register_self_lead: profile missing public_identifier: %r", profile)
+        return
     lead, _ = Lead.objects.update_or_create(
+
         public_identifier=public_id,
         defaults={"linkedin_url": public_id_to_url(public_id), "disqualified": True},
     )

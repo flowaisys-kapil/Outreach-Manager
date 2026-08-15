@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/planning.py
+# openoutreach/linkedin/planning.py
 """Task Queue Slot Planning Primitives & Active-Hours Arithmetic.
 
 Provides slot generation for task-row-driven workflows (CHECK_PENDING, EMAIL)

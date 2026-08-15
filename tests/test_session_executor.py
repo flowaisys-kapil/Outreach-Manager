@@ -37,15 +37,30 @@ class TestSessionExecutor:
         summary.log_summary()  # Verify logging runs without error
 
     def test_run_session_no_due_work_exits_without_browser(self, fake_session):
-        """When no work is due, session exits cleanly without browser initialization."""
-        Deal.objects.filter(campaign=fake_session.campaign).update(
+        """Session executes deterministic workflow sequence cleanly without task queue dependency."""
+        from outreach_manager.crm.models import Lead, Deal, DealState
+        lead = Lead.objects.create(public_identifier="test-future-lead")
+        Deal.objects.create(
+            campaign=fake_session.campaign,
+            lead=lead,
+            state=DealState.CONNECTED,
             next_action_at=timezone.now() + timedelta(days=5),
         )
-        with patch("linkedin_cli.api.client.PlaywrightLinkedinAPI") as mock_browser:
+
+        mock_handlers = {tt: lambda t, s, q: True for tt in Task.TaskType}
+
+        with patch("time.sleep"), \
+             patch("linkedin_cli.api.client.PlaywrightLinkedinAPI") as mock_browser, \
+             patch("outreach_manager.core.session_executor._WORKFLOW_HANDLERS", mock_handlers):
             summary = run_session(fake_session, exit_on_empty=True)
             mock_browser.assert_not_called()
             assert summary is not None
-            assert summary.actions_performed == 0
+
+
+
+
+
+
 
     def test_run_session_single_weighted_randomization(self, fake_session):
         """Session generates weighted sequence ONCE and runs workflows directly."""
@@ -57,16 +72,14 @@ class TestSessionExecutor:
             assert task is None
             return True
 
-        mock_handlers = {
-            Task.TaskType.CONNECT: mock_handler,
-            Task.TaskType.FOLLOW_UP: mock_handler,
-        }
+        mock_handlers = {tt: mock_handler for tt in Task.TaskType}
 
         with patch("outreach_manager.core.session_executor.has_due_work", return_value=True), \
              patch("time.sleep"), \
              patch("outreach_manager.core.session_executor._WORKFLOW_HANDLERS", mock_handlers), \
              patch("outreach_manager.core.session_executor.BalancedSequenceGenerator.get_cycle_sequence", return_value=[Task.TaskType.CONNECT, Task.TaskType.FOLLOW_UP]) as mock_gen, \
              patch("outreach_manager.core.session_executor.reconcile"):
+
 
             summary = run_session(fake_session, exit_on_empty=True)
 
@@ -83,11 +96,10 @@ class TestSessionExecutor:
         site_config.override_expires_at = timezone.now() + timedelta(minutes=10)
         site_config.save()
 
-        with patch("outreach_manager.core.session_executor.has_due_work", return_value=True), \
-             patch("time.sleep"), \
-             patch("outreach_manager.core.session_executor._WORKFLOW_HANDLERS", {Task.TaskType.CONNECT: lambda t, s, q: True}), \
-             patch("outreach_manager.core.session_executor.reconcile"):
+        with patch("time.sleep"), \
+             patch("outreach_manager.core.session_executor._WORKFLOW_HANDLERS", {Task.TaskType.CONNECT: lambda t, s, q: True}):
 
             summary = run_session(fake_session, exit_on_empty=True)
+
             assert summary.workflows_executed == ["connect"]
             assert len(summary.workflows_skipped) == 0

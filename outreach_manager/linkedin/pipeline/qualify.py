@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/pipeline/qualify.py
+# openoutreach/linkedin/pipeline/qualify.py
 """Qualify orchestration for the lazy chain."""
 from __future__ import annotations
 
@@ -230,7 +230,25 @@ def _fetch_profile_text(session, lead_id: int, public_id: str) -> str | None:
     lead = Lead.objects.filter(pk=lead_id).first()
     if not lead:
         return None
-    profile_data = lead.get_profile(session)
-    if not profile_data:
-        return None
-    return build_profile_text({"profile": profile_data})
+    profile_data = lead.get_profile(session) or {}
+    text = build_profile_text({"profile": profile_data})
+
+    kw_text = ""
+    if lead.source_keyword_id:
+        try:
+            from outreach_manager.linkedin.models import SearchKeyword
+            kw = SearchKeyword.objects.filter(pk=lead.source_keyword_id).first()
+            if kw and kw.keyword:
+                kw_text = f"Discovered via search keyword: '{kw.keyword}'. "
+        except Exception:
+            pass
+
+    headline = profile_data.get("headline", "") or ""
+    name = f"{profile_data.get('first_name', '')} {profile_data.get('last_name', '')}".strip()
+
+    combined = f"{kw_text}Name: {name}. Headline: {headline}. Details: {text}".strip()
+    if len(combined) < 20:
+        combined = f"Candidate public identifier: {public_id}. {kw_text}Role: {public_id.replace('-', ' ').title()}."
+
+    return combined
+

@@ -71,7 +71,7 @@ class Lead(models.Model):
         session.ensure_browser()
         api = PlaywrightLinkedinAPI(session=session)
         try:
-            profile, _raw = api.get_profile(public_identifier=self.public_identifier)
+            profile, _raw = api.get_profile(public_identifier=self.public_identifier, navigate=False)
         except ProfileInaccessibleError:
             return None
         if not profile:

@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/models.py
+# openoutreach/linkedin/models.py
 from __future__ import annotations
 
 import logging
@@ -60,11 +60,24 @@ class LinkedInProfile(models.Model):
                 logger.warning("Weekly connection limit health guard: connect blocked (weekly count >= limit)")
                 return False
 
-        daily_field = _RATE_LIMIT_FIELDS[action_type]
-        self.refresh_from_db(fields=[daily_field])
+        from outreach_manager.core.config import get_config
+        user_limit = get_config().workflows.get_daily_limit(action_type)
 
-        daily_limit = getattr(self, daily_field)
-        if daily_limit is not None and self._daily_count(action_type) >= daily_limit:
+        daily_field = _RATE_LIMIT_FIELDS.get(action_type)
+        if daily_field and hasattr(self, daily_field):
+            try:
+                self.refresh_from_db(fields=[daily_field])
+            except Exception:
+                pass
+            platform_limit = getattr(self, daily_field, None)
+            if isinstance(platform_limit, int):
+                effective_limit = min(platform_limit, user_limit)
+            else:
+                effective_limit = user_limit
+        else:
+            effective_limit = user_limit
+
+        if self._daily_count(action_type) >= effective_limit:
             return False
 
         return True
@@ -143,6 +156,7 @@ class ActionLog(models.Model):
     class ActionType(models.TextChoices):
         CONNECT = "connect", "Connect"
         FOLLOW_UP = "follow_up", "Follow Up"
+        REPLY = "reply", "Reply"
 
     linkedin_profile = models.ForeignKey(
         LinkedInProfile,

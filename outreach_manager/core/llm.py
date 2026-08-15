@@ -347,16 +347,25 @@ _LEGACY_MODEL_PREFIXES = {
 
 
 def split_model_id(ai_model: str) -> tuple[str, str]:
-    """Split a `provider:model` identifier into ``(provider, model)``.
-
-    A bare model name is accepted only when its prefix unambiguously implies a
-    provider (see ``_LEGACY_MODEL_PREFIXES``); anything else raises so the
-    misconfiguration surfaces instead of silently hitting the wrong API.
-    """
+    """Split a `provider:model` identifier into ``(provider, model)``."""
     ai_model_stripped = ai_model.strip()
+    valid_providers = {"google", "openai", "anthropic", "groq", "mistral", "cohere", "openai_compatible"}
+
     if ":" in ai_model_stripped:
         provider, _, model = ai_model_stripped.partition(":")
-        return provider, model
+        provider_clean = provider.strip().lower()
+        if provider_clean in valid_providers:
+            return provider_clean, model.strip()
+        lower_model = model.lower()
+        if "gemini" in lower_model:
+            return "google", model.strip().replace(" ", "-").lower()
+        elif any(k in lower_model for k in ("gpt", "o1", "o3")):
+            return "openai", model.strip()
+        elif "claude" in lower_model:
+            return "anthropic", model.strip()
+        elif "llama" in lower_model:
+            return "groq", model.strip()
+        return provider_clean, model.strip()
 
     lower_model = ai_model_stripped.lower()
     for prefix, provider in _LEGACY_MODEL_PREFIXES.items():

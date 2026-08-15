@@ -4,9 +4,9 @@ from django.utils.translation import gettext_lazy as _
 
 
 class DealState(models.TextChoices):
-    """Outreach Manager-owned funnel state for a Deal.
+    """OpenOutreach-owned funnel state for a Deal.
 
-    Outreach Manager owns these values, not linkedin_cli. The library's connect/status
+    OpenOutreach owns these values, not linkedin_cli. The library's connect/status
     verbs only *observe* three of them off the LinkedIn UI — QUALIFIED, PENDING,
     CONNECTED — and hand them back as plain strings over the CLI boundary; every
     other state is written only here: READY_TO_CONNECT (passed the GP threshold),

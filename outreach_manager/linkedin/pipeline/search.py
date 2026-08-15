@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/pipeline/search.py
+# openoutreach/linkedin/pipeline/search.py
 """Search keyword management and LinkedIn People search."""
 from __future__ import annotations
 
@@ -52,9 +52,14 @@ def run_search(session) -> str | None:
 
     logger.info(colored("\u25b6 search", "magenta", attrs=["bold"]) + " keyword=%r", kw.keyword)
     result = search_people(session, kw.keyword)
-    urls = [p["url"] for p in result["profiles"]]
-    # Record found count immediately — qualified count is updated later in
-    # _save_qualification_result when the LLM labels each discovered lead.
+    if isinstance(result, list):
+        profiles = result
+    elif isinstance(result, dict):
+        profiles = result.get("profiles", [])
+    else:
+        profiles = []
+    urls = [p["url"] for p in profiles if isinstance(p, dict) and "url" in p]
     kw.record_metrics(found_count=len(urls))
-    discover_and_enrich(session, urls, source_keyword_id=kw.pk)
+    discover_and_enrich(session, profiles, source_keyword_id=kw.pk)
     return kw.keyword
+

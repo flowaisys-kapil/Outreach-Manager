@@ -182,14 +182,16 @@ class TestTicket10CooldownReclaimPrevention:
         assert result.skipped_count == 2
         assert result.error_count == 0
 
+    @patch("outreach_manager.linkedin.tasks.reply.run_follow_up_agent")
     @patch("outreach_manager.linkedin.tasks.reply.sync_conversation")
     def test_7_reply_executes_immediately_after_follow_up_completes(
-        self, mock_sync, fake_session
+        self, mock_sync, mock_agent, fake_session
     ):
         """7. REPLY workflow executes immediately after FOLLOW_UP terminates."""
         mock_result = MagicMock()
         mock_result.new_messages = []
         mock_sync.return_value = mock_result
+        mock_agent.return_value = MagicMock(action="no_action", message="")
 
         _make_connected_deal(fake_session, "seq1", message_hours_ago=1)
 
@@ -202,6 +204,7 @@ class TestTicket10CooldownReclaimPrevention:
         res_r = handle_reply_unread(task_r, fake_session, _build_context(fake_session))
         assert res_r is not None
         mock_sync.assert_called_once()
+
 
     @patch("outreach_manager.linkedin.tasks.follow_up.verify_ui_ready")
     @patch("outreach_manager.core.db.summaries.materialize_profile_summary_if_missing")

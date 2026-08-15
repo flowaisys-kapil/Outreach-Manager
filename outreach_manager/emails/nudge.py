@@ -1,4 +1,4 @@
-# outreach_manager/emails/nudge.py
+# openoutreach/emails/nudge.py
 """Per-launch email-setup nudge.
 
 Runs every `rundaemon` start after onboarding. Until both a BetterContact key
@@ -24,8 +24,8 @@ from outreach_manager.linkedin.models import LinkedInProfile
 
 logger = logging.getLogger(__name__)
 
-BETTERCONTACT_AFFILIATE_URL = "https://bettercontact.rocks?fpr=outreach_manager"
-SENDER_AFFILIATE_URL = "https://icemail.ai?via=outreach_manager"
+BETTERCONTACT_AFFILIATE_URL = "https://bettercontact.rocks?fpr=openoutreach"
+SENDER_AFFILIATE_URL = "https://icemail.ai?via=openoutreach"
 EXPLAINER_URL = "https://outreach_manager.app/email-outreach"
 
 NO_BETTERCONTACT = "no_bettercontact"
@@ -53,7 +53,7 @@ NO_BETTERCONTACT_NUDGE = """
     Your model qualified {qualified} leads, but LinkedIn sends only ~{connect_cap}/day
     and most never accept. Email reaches the whole list — automatically, as they qualify.
 
-    Turn on BetterContact email finding (paid; the affiliate fee keeps Outreach Manager free).
+    Turn on BetterContact email finding (paid; the affiliate fee keeps OpenOutreach free).
     Your first 50 lookups are free with the subscription, so you can try it at no cost:
 
       {bettercontact_url}

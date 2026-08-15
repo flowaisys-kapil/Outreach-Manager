@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/apps.py
+# openoutreach/linkedin/apps.py
 from django.apps import AppConfig
 
 

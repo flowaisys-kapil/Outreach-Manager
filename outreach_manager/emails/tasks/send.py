@@ -1,4 +1,4 @@
-# outreach_manager/emails/tasks/send.py
+# openoutreach/emails/tasks/send.py
 """EMAIL task — sends the single Layer-1 email for a deal at READY_TO_EMAIL.
 
 Layer 1 is outbound-only and single-shot: the daemon sends one email per
@@ -20,11 +20,12 @@ from django.utils import timezone
 from termcolor import colored
 
 from outreach_manager.crm.models import DealState
+from outreach_manager.core.workflow_result import WorkflowResult
 
 logger = logging.getLogger(__name__)
 
 
-def handle_email(task, session, qualifiers):
+def handle_email(task, session, qualifiers) -> WorkflowResult:
     from outreach_manager.core.agents.email_opener import compose_opener_email
     from outreach_manager.core.db.deals import get_emailable_deals
     from outreach_manager.core.db.summaries import materialize_profile_summary_if_missing
@@ -33,24 +34,61 @@ def handle_email(task, session, qualifiers):
 
     campaign = session.campaign
 
+    # Discovery
     mailbox = Mailbox.objects.least_loaded_under_cap()
     deal = get_emailable_deals(session).first() if mailbox else None
+
+    logger.info(
+        "[%s] Email Workflow — Candidates discovered: %d",
+        campaign,
+        1 if deal else 0,
+    )
+
     if mailbox is None or deal is None:
         logger.info("[%s] email: nothing to send (empty queue or every box at cap)", campaign)
-        return False
+        return WorkflowResult(
+            processed_count=0,
+            skipped_count=1,
+            error_count=0,
+            errors=[]
+        )
 
     public_id = deal.lead.public_identifier
-    logger.info("[%s] %s %s via %s", campaign,
-                colored("▶ email", "blue", attrs=["bold"]), public_id, mailbox.from_address)
+    logger.info("[%s] Processing candidate: %s", campaign, public_id)
 
-    materialize_profile_summary_if_missing(deal, session)
-    draft = compose_opener_email(session, deal)
+    try:
+        materialize_profile_summary_if_missing(deal, session)
+        draft = compose_opener_email(session, deal)
 
-    message_id = send_email(mailbox, deal.lead.api_email, draft.subject, draft.body)
-    _record_sent_email(deal, mailbox, draft.subject, message_id)
-    logger.info("[%s] email sent to %s (%s): %s\n%s",
-                campaign, public_id, deal.lead.api_email, draft.subject, draft.body)
-    return True
+        # Action: Send email
+        message_id = send_email(mailbox, deal.lead.api_email, draft.subject, draft.body)
+        logger.info("[%s] Action executed: Opener email sent successfully", campaign)
+
+        # State synchronization
+        _record_sent_email(deal, mailbox, draft.subject, message_id)
+        logger.info("[%s] State synchronized for: %s", campaign, public_id)
+
+        logger.info(
+            "[%s] Email Workflow Complete — Processed: 1, Skipped: 0, Errors: 0",
+            campaign,
+        )
+
+        return WorkflowResult(
+            processed_count=1,
+            skipped_count=0,
+            error_count=0,
+            errors=[],
+            metrics={"emails_sent": 1}
+        )
+
+    except Exception as exc:
+        logger.exception("Email task error for %s: %s", public_id, exc)
+        return WorkflowResult(
+            processed_count=0,
+            skipped_count=0,
+            error_count=1,
+            errors=[f"Email send error for {public_id}: {exc}"]
+        )
 
 
 def _record_sent_email(deal, mailbox, subject, message_id) -> None:

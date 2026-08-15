@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/pipeline/search_keywords.py
+# openoutreach/linkedin/pipeline/search_keywords.py
 """LLM-based generation of LinkedIn People search keywords."""
 from __future__ import annotations
 
@@ -41,12 +41,16 @@ def generate_search_keywords(
         exclude_keywords=exclude_keywords or [],
     )
 
-    agent = Agent(
-        get_llm_model(),
-        output_type=SearchKeywords,
-        model_settings={"temperature": 0.9},
-    )
-    result = run_agent_sync(lambda: agent.run(prompt)).output
+    try:
+        agent = Agent(
+            get_llm_model(),
+            output_type=SearchKeywords,
+            model_settings={"temperature": 0.9},
+        )
+        result = run_agent_sync(lambda: agent.run(prompt)).output
+        logger.info("Generated %d search keywords via LLM", len(result.keywords))
+        return result.keywords
+    except Exception as exc:
+        logger.warning("generate_search_keywords LLM error fallback: %s", exc)
+        return ["software engineer", "sales director", "founder"]
 
-    logger.info("Generated %d search keywords via LLM", len(result.keywords))
-    return result.keywords

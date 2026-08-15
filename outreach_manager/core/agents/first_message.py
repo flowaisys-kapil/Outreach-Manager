@@ -1,4 +1,4 @@
-# outreach_manager/core/agents/first_message.py
+# openoutreach/core/agents/first_message.py
 """First message generator: composes personalized intro 1st LinkedIn message for a deal.
 
 Single LLM call with structured output returning message content.

@@ -1,4 +1,4 @@
-# outreach_manager/emails/smtp.py
+# openoutreach/emails/smtp.py
 """Auth-only SMTP check, run when a mailbox is imported.
 
 No test send — boxes are mid-warmup; we only confirm the credentials log in.

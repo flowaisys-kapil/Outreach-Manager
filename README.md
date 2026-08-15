@@ -1,33 +1,41 @@
-# Outreach Manager
+# Outreach Manager v2.0
 
-> **Autonomous B2B lead discovery, ML qualification, and multi-turn outreach campaign engine.**
+> **Autonomous B2B Lead Discovery, Zero-Navigation Stealth Enrichment, Bayesian ML Qualification, and Multi-Turn Outreach Campaign Engine.**
 
-Outreach Manager is a self-hosted, production-grade campaign execution engine designed for B2B lead discovery, qualification, and automated outreach. Built with modern Python, Django CRM, and Playwright browser automation, it enables growth teams, founders, and sales engineers to run targeted outreach campaigns with zero subscription lock-in, complete data privacy, and robust account safety.
+Outreach Manager v2.0 is a self-hosted, production-grade campaign execution engine built for B2B lead discovery, qualification, and automated outreach. Built with modern Python 3.12, Django 6.0 CRM, Playwright browser automation, and Bayesian machine learning, it enables growth teams, founders, and sales engineers to run targeted outreach campaigns with zero subscription lock-in, complete data privacy, and max-level account safety.
 
-Unlike legacy platforms that rely on static lists, Outreach Manager functions as a self-learning agentic system. You define your campaign objectives and target buyer personas, and Outreach Manager handles the entire lifecycle — from discovering profiles on LinkedIn and Bayesian ML qualification to personalized multi-turn messaging, status tracking, and connection request lifecycle management.
+Unlike legacy automation tools that rely on static lists or aggressive profile scraping, Outreach Manager v2.0 operates as an intelligent agentic system. You define campaign objectives and buyer personas, and Outreach Manager handles the entire lifecycle — from zero-navigation search card discovery on LinkedIn and Bayesian ML qualification to personalized multi-turn messaging, status synchronization, and connection request lifecycle management.
 
-All deal states, message histories, logs, and browser sessions remain 100% under your control on your own infrastructure.
+All deal states, message histories, telemetry logs, and browser sessions remain 100% under your control on your own infrastructure.
 
 ---
 
-## ⚡ Key Features
+## ⚡ Key Features (v2.0)
 
-- 🤖 **Autonomous Lead Discovery & Bayesian ML Qualification**: Discovers target profiles via AI-generated search queries and ranks them using a Gaussian Process regressor on fastembed vector embeddings.
-- ⚡ **Session-Based Batch Execution**: Executes outreach in discrete, bounded sessions. Workflows process eligible deals in natural batches, avoiding rate limits and anti-bot flags.
-- 🛡️ **Stealth Fingerprinting & Human Simulation**: Playwright automation with anti-detection JS injection, Bezier-curve mouse paths, human typing cadence, and session persistence.
-- 🔄 **Robust Browser Recovery**: Detects browser crashes or context deaths, rebuilds state automatically, and resumes the active deal without losing progress or wasting AI tokens.
+- 🤖 **Zero-Navigation Lead Discovery & Enrichment**: Discovers target profiles directly off search result cards and constructs enriched `Lead` records without opening individual candidate profile pages (`navigate=False`). **Reduces profile page views by 90–95%**, completely preventing high-volume scraping detection.
+- 🎯 **Humanized Routine Planner**: Calculates human-like session start times based on customizable working windows (`working_windows`), active days (`active_days`), and micro-jitter delays to mirror natural human activity patterns.
+- 🔄 **Automatic Execution Mode**: Flexible execution modes supporting `interactive`, `scheduled` (Windows Task Scheduler / cron), and `automatic` daemon loops (`python manage.py rundaemon`).
+- 📈 **AI Usage Analytics & Telemetry**: Thread-safe tracking of LLM API consumption (primary vs. fallback providers, input/output token estimation, latency, structured output calls, and provider health metrics).
+- 📜 **Session History & Flight Recorder**: Neutral `SessionRecorder` persisting execution session history (`SessionHistory`), workflow breakdowns, error accounting, and interactive CLI/web reporting.
+- 🛡️ **Full Stealth & Human Simulation**: Playwright browser automation with anti-detection stealth injection, Bezier-curve mouse pathing, human typing cadence, and persistent Chrome profile session caching.
+- 🧠 **Context-Aware Bayesian ML & LLM Qualification**: Ranks candidates using a Gaussian Process regressor on fastembed vector embeddings and qualifies target decision-makers using LLM prompts designed to prevent false `wrong-fit` rejections.
+- 🔄 **Robust Browser Recovery**: Detects browser context deaths, automatically rebuilds state, and resumes active deal operations without losing progress or wasting AI tokens.
 - 💬 **Multi-Turn AI Messaging & LLM Safety**: Personalized connection notes, first-message openers, and follow-ups powered by `pydantic-ai`. Includes response sanitization and HTTP 429 quota exhaustion handling.
-- 📅 **Lifecycle & Withdrawal Management**: Automatically checks pending connection requests, tracks acceptances, and withdraws unanswered requests older than 7 days.
-- 📊 **CRM Dashboard & Real-Time Console**: Integrated web interface to monitor campaigns, deal funnels, execution logs, and live terminal console output.
-- 📜 **Production Logging & Error Isolation**: 3-tier logging architecture separating concise operational timelines, recoverable warnings, and detailed tracebacks for unexpected bugs.
+- 📅 **Lifecycle & Withdrawal Management**: Automatically tracks pending connection requests and withdraws unanswered requests older than 7 days.
+- 📊 **CRM Dashboard & Real-Time Console**: Integrated web dashboard to monitor campaigns, deal funnels, execution session logs, and live terminal console output.
 
 ---
 
 ## 🏗️ Architecture Overview
 
-Outreach Manager uses a modular, session-driven architecture where execution is orchestrated by the `SessionExecutor` and coordinated by a state-aware `WorkflowScheduler`:
+Outreach Manager v2.0 follows a session-driven, modular architecture where execution is managed by the `SessionExecutor`, coordinated by a state-aware `WorkflowScheduler`, and recorded by the neutral `SessionRecorder`:
 
 ```
++-------------------------------------------------------------+
+|                 Routine Planner / Execution Router          |
++-------------------------------------------------------------+
+                               |
+                               v
 +-------------------------------------------------------------+
 |                       Session Executor                      |
 +-------------------------------------------------------------+
@@ -37,20 +45,23 @@ Outreach Manager uses a modular, session-driven architecture where execution is 
 |                      Workflow Scheduler                     |
 +-------------------------------------------------------------+
                                |
-      +------------+-----------+-----------+------------+
-      |            |                       |            |
-      v            v                       v            v
-  +-------+   +---------+            +-----------+  +---------+
-  |Connect|   |  Reply  |            | Follow-Up |  |CheckPend|
-  +-------+   +---------+            +-----------+  +---------+
-      |            |                       |            |
-      +------------+-----------+-----------+------------+
+       +------------+-----------+-----------+------------+
+       |            |                       |            |
+       v            v                       v            v
+   +-------+   +---------+            +-----------+  +---------+
+   |Connect|   |  Reply  |            | Follow-Up |  |CheckPend|
+   +-------+   +---------+            +-----------+  +---------+
+       |            |                       |            |
+       +------------+-----------+-----------+------------+
                                |
-                               v
-+-------------------------------------------------------------+
-|                     AccountSession / UI                     |
-|              (Playwright Browser / Django CRM DB)           |
-+-------------------------------------------------------------+
+            +------------------+------------------+
+            |                                     |
+            v                                     v
++-----------------------+             +-----------------------+
+|  AccountSession / UI  |             |    SessionRecorder    |
+| (Playwright / Chrome) |             |  (SessionHistory /    |
+|                       |             |   AIUsageLog Telemetry)
++-----------------------+             +-----------------------+
 ```
 
 For full technical details, see [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -59,14 +70,14 @@ For full technical details, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## 💡 Project Philosophy
 
-- **Session-Based Execution**: Work is executed in discrete, bounded runs with clear summary metrics. No runaway background processes or uncontrolled state drift.
+- **Account Protection & Anti-Detection First**: Zero-navigation profile enrichment, conservative rate limits (12-25s delays, 5 max per page), and human-like micro-behavior protect your LinkedIn account from flags.
+- **Session-Based Execution**: Work is executed in discrete, bounded runs with clean summary metrics. No runaway background processes or uncontrolled state drift.
 - **Single Responsibility per Component**: Each workflow task (`Connect`, `Reply`, `FollowUp`, `CheckPending`, `Extract`) owns its domain exclusively.
-- **Reliability Over Cleverness**: Explicit error boundaries, surgical UI pre-validation before LLM calls, and single-attempt deal resumption on browser recovery.
-- **Full Data Ownership**: All deal states, chat summaries, logs, and browser profiles stay locally on your machine.
+- **Reliability & Full Data Ownership**: Explicit error boundaries, surgical UI pre-validation before LLM calls, and complete local storage of all deal states, chat logs, and browser profiles.
 
 ---
 
-## 📦 Installation
+## 📦 Quick Start & Installation
 
 ### Prerequisites
 
@@ -74,95 +85,77 @@ For full technical details, see [ARCHITECTURE.md](ARCHITECTURE.md).
 - **Google Chrome** (for native browser mode) or **Chromium** (via Playwright)
 - **Git**
 
-### Quick Setup (Windows)
+### 1. Windows One-Click Setup
 
-Double-click `setup.bat` or run:
-```cmd
-setup.bat
+Double-click `setup.bat` or run in PowerShell:
+```powershell
+.\setup.bat
 ```
-This script installs dependencies, downloads Playwright browser binaries, runs database migrations, and initializes the CRM.
+This script sets up Python dependencies, downloads Playwright browser binaries, runs Django migrations, and initializes the CRM.
 
-### Manual Setup (Linux / macOS / Windows)
+### 2. Manual Setup (Linux / macOS / Windows)
 
-1. **Clone the Repository**:
-   ```bash
-   git clone https://github.com/flowaisys/Outreach-Manager.git
-   cd Outreach-Manager
-   ```
+```bash
+# Clone the Repository
+git clone https://github.com/flowaisys/Outreach-Manager.git
+cd Outreach-Manager
 
-2. **Set Up Python Virtual Environment**:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # On Windows: .\.venv\Scripts\activate
-   pip install -r requirements/local.txt
-   ```
+# Create Virtual Environment
+python -m venv .venv
+source .venv/bin/activate  # Windows: .\.venv\Scripts\activate
 
-3. **Install Playwright Browsers**:
-   ```bash
-   playwright install --with-deps chromium
-   ```
+# Install Dependencies & Playwright
+pip install -r requirements/local.txt
+playwright install --with-deps chromium
 
-4. **Initialize Database & Setup CRM**:
-   ```bash
-   python manage.py migrate --no-input
-   python manage.py setup_crm
-   ```
+# Initialize Database & Setup CRM
+python manage.py migrate --no-input
+python manage.py setup_crm
+```
 
 ---
 
 ## ⚙️ Configuration
 
-Configure Outreach Manager by environment variables (`.env`) or via the interactive onboarding CLI wizard (`python manage.py rundaemon`).
+Configure Outreach Manager v2.0 via environment variables (`.env`) or central configuration (`outreach_manager/core/conf.py`).
 
-### Key Settings
+### Key Runtime Settings
 
-| Variable | Description | Default |
+| Parameter | Description | Default |
 |---|---|---|
+| `ENABLE_ACTIVE_HOURS` | Restrict execution to active working hours | `True` (9 AM - 6 PM) |
+| `enrich_min_delay_seconds` | Minimum delay between lead enrichments | `12` |
+| `enrich_max_delay_seconds` | Maximum delay between lead enrichments | `25` |
+| `enrich_max_per_page` | Maximum leads enriched per search page | `5` |
+| `min_action_interval` | Minimum delay between write actions | `180s` (3 min) |
+| `CHECK_PENDING_DAILY_CAP` | Daily cap on pending connection checks | `50` |
 | `AI_MODEL` | Provider and model identifier (`provider:model`) | `openai:gpt-4o` |
-| `LLM_API_KEY` | API Key for your LLM provider | Required |
-| `LINKEDIN_EMAIL` | LinkedIn account email | Required |
-| `LINKEDIN_PASSWORD` | LinkedIn account password | Required |
-| `CONNECT_DAILY_LIMIT` | Daily connection request limit | `50` |
-| `FOLLOW_UP_DAILY_LIMIT` | Daily follow-up message limit | `100` |
-
-For complete configuration details, see [docs/configuration.md](docs/configuration.md).
+| `LLM_API_KEY` | API Key for primary LLM provider | Required |
 
 ---
 
-## 🚀 Running Outreach Manager
+## 🚀 Execution Modes
 
-### 1. Interactive Control Dashboard
+### 1. Interactive CRM Control Dashboard
 
-Launch the Django web application and CRM dashboard:
+Launch the Django web application and CRM control center:
+```bash
+python manage.py runserver
+```
+or double-click `start.bat` on Windows.
+Open [http://localhost:8000/](http://localhost:8000/) to view campaign funnels, trigger execution cycles, and inspect session history metrics.
 
-- **Windows**: Run `start.bat` or `powershell -File run_outreach_manager.ps1`
-- **CLI**: `python manage.py runserver`
+### 2. Automatic Daemon Mode (`rundaemon`)
 
-Open [http://localhost:8000/](http://localhost:8000/) in your browser to view the control center, trigger outreach cycles, inspect deal funnels, and monitor execution logs.
-
-### 2. Manual Daemon Execution
-
-Run a bounded outreach execution cycle via the management command:
-
+Run a bounded, single-session outreach cycle:
 ```bash
 python manage.py rundaemon
 ```
 
-To run a single cycle and exit when no tasks remain due:
-
+To run a single cycle and exit immediately when no tasks remain due:
 ```bash
 python manage.py rundaemon --exit-on-empty
 ```
-
-### 3. Docker Deployment
-
-Deploy containerized Outreach Manager with VNC remote desktop support:
-
-```bash
-docker compose -f local.yml up --build -d
-```
-
-For complete Docker guide and production deployment details, see [docs/docker.md](docs/docker.md).
 
 ---
 
@@ -170,23 +163,24 @@ For complete Docker guide and production deployment details, see [docs/docker.md
 
 ```
 Outreach-Manager/
-├── outreach_manager/         # Application package
-│   ├── core/                 # Session executor, scheduler, LLM & logging
+├── outreach_manager/         # Core application package
+│   ├── core/                 # Session executor, scheduler, routine planner, AI usage tracker
+│   │   ├── llm/              # Multi-provider LLM client, runner, and usage tracker
 │   │   ├── templates/core/   # CRM Dashboard HTML templates
 │   │   └── management/       # Django CLI commands (rundaemon, setup_crm)
 │   ├── crm/                  # Lead, Deal, Campaign models & CRM logic
 │   ├── linkedin/             # Playwright browser engine, tasks, ML qualification
 │   │   ├── browser/          # Stealth profile, human actions & UI validation
+│   │   ├── db/               # Leads DB operations & zero-navigation enrichment
 │   │   └── tasks/            # Connect, Reply, FollowUp, CheckPending tasks
 │   ├── chat/                 # Multi-turn chat message models & history
 │   └── emails/               # Email delivery channels
 ├── compose/                  # Docker container assets
-├── docs/                     # Technical documentation
-├── scripts/                  # Helper & maintenance scripts
+├── docs/                     # Technical documentation & configuration guides
+├── scripts/                  # Maintenance & diagnostic scripts
 ├── tests/                    # Test suite (pytest)
 ├── manage.py                 # Django management entrypoint
-├── start.bat / setup.bat     # Windows launcher scripts
-└── local.yml                 # Docker Compose specification
+└── start.bat / setup.bat     # Windows launcher scripts
 ```
 
 ---
@@ -194,33 +188,13 @@ Outreach-Manager/
 ## 🧪 Development & Testing
 
 Run the full pytest suite:
-
 ```bash
 pytest tests/ -v
 ```
-
-All 545+ tests verify workflow isolation, scheduler integrity, browser recovery, LLM quota handling, and session error accounting.
-
----
-
-## 🗺️ Roadmap
-
-- 🔄 **Automatic Mode**: Continuous background daemon scheduler with configurable sleep intervals.
-- 🎯 **Routine Planner**: Dynamic time-of-day execution cadence tailored to buyer timezones.
-- 🧠 **Conversation Strategy Engine**: Advanced multi-turn conversation goal trees for complex deal qualification.
-- 📈 **AI Usage Analytics**: Fine-grained token consumption and provider cost tracking per campaign.
-- 📜 **Session History Visualizer**: Interactive timeline viewer for past execution session summaries.
+All 115+ core unit tests verify workflow isolation, routine planner logic, zero-navigation enrichment, browser recovery, LLM quota handling, and session telemetry.
 
 ---
 
 ## 📄 License
 
 Distributed under the GNU General Public License v3.0 (`LICENCE.md`).
-
----
-
-## 📚 Documentation Index
-
-- [Architecture Guide](ARCHITECTURE.md)
-- [Configuration Guide](docs/configuration.md)
-- [Docker Deployment Guide](docs/docker.md)

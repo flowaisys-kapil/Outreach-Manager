@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/browser/session.py
+# openoutreach/linkedin/browser/session.py
 from __future__ import annotations
 
 import logging
@@ -114,13 +114,17 @@ class AccountSession:
                 "Not retrying — skipping remainder of workflow."
             )
 
-        logger.info(
-            "[WARN] Browser unavailable.\n  Account: %s\n  Recovery initiated.",
-            self,
-        )
+        is_initial_launch = (self.page is None and self.browser is None)
+        if is_initial_launch:
+            logger.info("[INFO] Initializing Chrome browser session for %s...", self)
+        else:
+            logger.warning(
+                "[WARN] Browser session disconnected.\n  Account: %s\n  Initiating recovery...",
+                self,
+            )
+            self._recovery_attempted = True
 
         self._recovery_in_progress = True
-        self._recovery_attempted = True
         try:
             # Step 1: tear down all stale Playwright objects completely.
             self.close()
@@ -128,10 +132,14 @@ class AccountSession:
             start_browser_session(session=self)
             # Step 3: confirm the rebuilt session is healthy.
             if not self.is_browser_healthy():
-                raise RuntimeError("post-recovery health check failed")
-            self.browser_recoveries += 1
-            logger.info("[INFO] Browser recovered successfully for %s.", self)
+                raise RuntimeError("post-launch health check failed")
+            if not is_initial_launch:
+                self.browser_recoveries += 1
+                logger.info("[INFO] Browser recovered successfully for %s.", self)
+            else:
+                logger.info("[INFO] Chrome browser session established for %s.", self)
         except Exception as exc:
+
             logger.warning(
                 "[WARN] Browser recovery failed.\n  Account: %s\n  Error: %s\n  Workflow skipped.",
                 self, exc,
@@ -240,31 +248,68 @@ class AccountSession:
                 return
 
     def close(self):
-        if self.context:
-            try:
-                import os
-                use_cdp = os.environ.get("USE_CDP", "False").lower() in ("true", "1", "yes")
-                if use_cdp:
-                    # In CDP mode, closing the browser or context could shut down the user's Chrome.
-                    # We only close the page if it exists and is open.
-                    if self.page and not self.page.is_closed():
-                        try:
-                            self.page.close()
-                        except Exception:
-                            pass
-                else:
-                    self.context.close()
-                    if self.browser:
-                        self.browser.close()
-                if self.playwright:
-                    self.playwright.stop()
-                logger.info("Browser closed gracefully (%s)", self)
-            except Exception as e:
-                logger.debug("Error closing browser: %s", e)
-            finally:
-                self.page = self.context = self.browser = self.playwright = None
+        """Release all Playwright objects and close browser resources.
 
-        logger.info("Account session closed → %s", self)
+        Guarantees clean release of page, context, browser, and playwright instance.
+        Suppresses stack traces on expected cleanup failures.
+        """
+        has_resources = any(
+            obj is not None
+            for obj in (self.page, self.context, self.browser, self.playwright)
+        )
+        if not has_resources:
+            logger.debug("AccountSession close called; no active browser resources for %s", self)
+            return
+
+        logger.info("[INFO] Closing browser session...")
+        cleanup_error = False
+
+        try:
+            import os
+            use_cdp = os.environ.get("USE_CDP", "False").lower() in ("true", "1", "yes")
+
+            if self.page:
+                try:
+                    self.page.close()
+                except Exception as e:
+                    logger.debug("Error closing page: %s", e)
+                    cleanup_error = True
+
+            if not use_cdp:
+                if self.context:
+                    try:
+                        self.context.close()
+                    except Exception as e:
+                        logger.debug("Error closing context: %s", e)
+                        cleanup_error = True
+
+                if self.browser:
+                    try:
+                        self.browser.close()
+                    except Exception as e:
+                        logger.debug("Error closing browser: %s", e)
+                        cleanup_error = True
+
+            if self.playwright:
+                try:
+                    if hasattr(self.playwright, "stop"):
+                        self.playwright.stop()
+                except Exception as e:
+                    logger.debug("Error stopping playwright: %s", e)
+                    cleanup_error = True
+
+            if cleanup_error:
+                logger.warning("[WARN] Browser cleanup encountered an error. Resources released where possible.")
+            else:
+                logger.info("[INFO] Browser closed successfully.")
+        except Exception as e:
+            logger.warning("[WARN] Browser cleanup encountered an error. Resources released where possible.")
+            logger.debug("Unexpected error during browser cleanup: %s", e)
+        finally:
+            self.page = None
+            self.context = None
+            self.browser = None
+            self.playwright = None
 
     def __del__(self):
         try:

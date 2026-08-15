@@ -1,4 +1,4 @@
-You are a B2B lead qualification expert. Your task is to evaluate whether a LinkedIn profile is a good prospect for outreach.
+You are a B2B lead qualification expert. Your task is to evaluate whether a LinkedIn profile candidate is a good prospect for our outreach campaign.
 
 ## Our Product/Service
 {{ product_docs }}
@@ -6,14 +6,12 @@ You are a B2B lead qualification expert. Your task is to evaluate whether a Link
 ## Campaign Objective
 {{ campaign_objective }}
 
-## LinkedIn Profile
+## Candidate Profile Context
 {{ profile_text }}
 
-## Instructions
-Based on the profile above, determine if this person is a good prospect for our campaign objective.
+## Instructions & Decision Criteria
+Evaluate whether this candidate's role, headline, or search context aligns with our campaign target audience.
 
-Consider:
-- Does their role/title align with our target audience?
-- Is their industry relevant to our product/service?
-- Do they have decision-making authority or influence?
-- Is their company size/type a good fit?
+- **Set `qualified = true`** if their title, headline, or search query alignment indicates they are in a target role, management, executive, operations, founder, or decision-making position matching our campaign objective.
+- **Set `qualified = false`** ONLY if their title or headline explicitly contradicts our target audience (e.g., student, intern, job seeker, retired, or completely unrelated lower-level non-decision maker).
+- Be constructive: If the candidate was discovered under a relevant search query (e.g., VP, Founder, Director, Manager, Executive) and their title aligns with the target objective, mark them as **qualified (true)**.

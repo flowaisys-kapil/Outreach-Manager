@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/pipeline/pools.py
+# openoutreach/linkedin/pipeline/pools.py
 """Pool management via composable generators.
 
 Three generators chain via next(upstream, None):
@@ -115,10 +115,15 @@ def qualify_source(session, qualifier: BayesianQualifier) -> Generator[str, None
 
         # In exploit mode with no P > 0.5 candidates, keep searching
         # until the positive pool is non-empty or search is exhausted.
+        prev_cand_count = len(candidates)
         while _needs_search(qualifier, candidates):
             if next(search, None) is None:
                 break
             candidates = fetch_qualification_candidates(session)
+            if len(candidates) <= prev_cand_count:
+                break
+            prev_cand_count = len(candidates)
+
 
         result = run_qualification(session, qualifier)
         if result is None:

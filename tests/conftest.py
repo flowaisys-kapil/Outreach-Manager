@@ -1,5 +1,6 @@
 # tests/conftest.py
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
+
 
 import numpy as np
 import pytest
@@ -54,7 +55,11 @@ class FakeAccountSession:
         }
         # Resolved post-login on the real session; None here → no active-hours
         # gating (planner tests disable active hours regardless).
+        self.browser = MagicMock()
+        self.page = MagicMock()
+        self.api = MagicMock()
         self.active_timezone = None
+
 
     def wait(self, min_delay=0.1, max_delay=0.2):
         pass

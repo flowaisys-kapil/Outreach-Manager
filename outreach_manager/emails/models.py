@@ -1,4 +1,4 @@
-# outreach_manager/emails/models.py
+# openoutreach/emails/models.py
 """Mailbox: one SMTP sending inbox, imported from the provider's creds export."""
 from __future__ import annotations
 

@@ -145,3 +145,33 @@ class BalancedSequenceGenerator:
             [t.value for t in shuffled]
         )
         return shuffled
+
+
+def get_execution_sequence(session) -> list[Task.TaskType]:
+    """Resolve the workflow execution sequence, evaluating task overrides and balanced generator."""
+    from outreach_manager.core.models import SiteConfig
+    from django.utils import timezone
+
+    site_config = SiteConfig.load()
+    override_task = site_config.simulated_task
+    if override_task and site_config.override_expires_at and timezone.now() > site_config.override_expires_at:
+        site_config.simulated_task = ""
+        site_config.override_expires_at = None
+        site_config.save()
+        override_task = ""
+
+    task_override_map = {
+        "reply_unread": Task.TaskType.REPLY_UNREAD,
+        "follow_up": Task.TaskType.FOLLOW_UP,
+        "first_message": Task.TaskType.FIRST_MESSAGE,
+        "check_pending": Task.TaskType.CHECK_PENDING,
+        "connect": Task.TaskType.CONNECT,
+        "extract_leads": Task.TaskType.EXTRACT_LEADS,
+        "extract": Task.TaskType.EXTRACT_LEADS,
+    }
+
+    if override_task and override_task in task_override_map:
+        override_type = task_override_map[override_task]
+        return [override_type]
+    return BalancedSequenceGenerator.get_cycle_sequence(session)
+

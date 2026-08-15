@@ -1,4 +1,4 @@
-# outreach_manager/core/conf.py
+# openoutreach/core/conf.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -11,7 +11,7 @@ ROOT_DIR = Path(__file__).parent.parent.parent
 
 PROMPTS_DIR = Path(__file__).parent / "templates" / "prompts"
 
-DIAGNOSTICS_DIR = Path("/tmp/outreach_manager-diagnostics")
+DIAGNOSTICS_DIR = Path("/tmp/openoutreach-diagnostics")
 
 FASTEMBED_CACHE_DIR = ROOT_DIR / ".cache" / "fastembed"
 
@@ -49,7 +49,7 @@ DEFAULT_EMAIL_DAILY_LIMIT = 30
 # ----------------------------------------------------------------------
 ENABLE_ACTIVE_HOURS = False
 ACTIVE_START_HOUR = 9   # inclusive, local time
-ACTIVE_END_HOUR = 19    # exclusive, local time
+ACTIVE_END_HOUR = 18    # exclusive, local time
 ACTIVE_TIMEZONE = None  # None → resolve from LinkedIn profile country post-login
 
 # ----------------------------------------------------------------------
@@ -57,21 +57,21 @@ ACTIVE_TIMEZONE = None  # None → resolve from LinkedIn profile country post-lo
 # planning window, regardless of how many PENDING deals are overdue.
 # Overflow rolls into the next planning cycle.
 # ----------------------------------------------------------------------
-CHECK_PENDING_DAILY_CAP = 100
+CHECK_PENDING_DAILY_CAP = 50
 
 # ----------------------------------------------------------------------
 # Campaign config (timing + ML defaults — hardcoded, no YAML)
 # ----------------------------------------------------------------------
 CAMPAIGN_CONFIG = {
     "check_pending_recheck_after_hours": 24,
-    "min_action_interval": 120,
+    "min_action_interval": 180,
     "qualification_n_mc_samples": 100,
     "min_ready_to_connect_prob": 0.6,
     "min_positive_pool_prob": 0.20,
     "embedding_model": "BAAI/bge-small-en-v1.5",
-    "enrich_min_delay_seconds": 6,
-    "enrich_max_delay_seconds": 10,
-    "enrich_max_per_page": 10,
+    "enrich_min_delay_seconds": 12,
+    "enrich_max_delay_seconds": 25,
+    "enrich_max_per_page": 5,
     "burst_min_seconds": 2700,   # 45 min
     "burst_max_seconds": 3900,   # 65 min
     "break_min_seconds": 600,    # 10 min
@@ -79,3 +79,13 @@ CAMPAIGN_CONFIG = {
 }
 
 
+# ----------------------------------------------------------------------
+# Re-export Phase 2 Runtime Configuration Foundation
+# ----------------------------------------------------------------------
+from outreach_manager.core.config import (
+    AppConfig,
+    ConfigurationError,
+    get_config,
+    load_config,
+    reset_config,
+)

@@ -1,6 +1,6 @@
 """Self-hosted onboarding prompt definitions.
 
-Vendored from the (retired) outreach_manager-cli. Only the self-hosted profile
+Vendored from the (retired) openoutreach-cli. Only the self-hosted profile
 is kept — the cloud-only VPN questions and their geo lookups are dropped.
 """
 
@@ -62,7 +62,7 @@ FOLLOW_UP_DAILY = IntText("follow_up_daily_limit", "LinkedIn follow-up messages 
 
 LEGAL = Confirm(
     "legal_acceptance",
-    "Do you accept the Legal Notice? (https://github.com/flowaisys/Outreach-Manager/blob/main/LEGAL_NOTICE.md)",
+    "Do you accept the Legal Notice? (https://github.com/eracle/OpenOutreach/LEGAL_NOTICE.md)",
     default=False,
     required=True,
 )

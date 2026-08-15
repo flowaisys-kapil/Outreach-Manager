@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/ml/profile_text.py
+# openoutreach/linkedin/ml/profile_text.py
 from __future__ import annotations
 
 

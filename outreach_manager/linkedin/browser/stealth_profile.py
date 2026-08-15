@@ -1,28 +1,10 @@
 # outreach_manager/linkedin/browser/stealth_profile.py
 """
-Advanced stealth fingerprint module for Outreach Manager.
+Advanced stealth fingerprint module for Open Outreach.
 
 Injects 13 anti-bot-detection JS scripts into every Playwright page,
 covering all major detection vectors used by LinkedIn, Cloudflare,
 PerimeterX, Datadome, and similar services.
-
-Goes beyond Outreach Manager's baseline by adding:
-  - Canvas fingerprint noise (session-unique seed)
-  - WebGL vendor/renderer spoofing
-  - navigator.userAgentData (Client Hints) spoofing
-  - screen/outerWidth/outerHeight alignment
-  - media codec capability spoofing
-  - Function.prototype.toString native-code defense
-  - iframe contentWindow webdriver patch
-  - Error.captureStackTrace automation trace removal
-
-Usage (wire in launch.py for CDP mode)::
-
-    from outreach_manager.linkedin.browser.stealth_profile import (
-        apply_full_stealth, apply_stealth_to_new_page, get_chrome_launch_args,
-    )
-    apply_full_stealth(page, context)
-    context.on("page", apply_stealth_to_new_page)
 """
 from __future__ import annotations
 
@@ -58,7 +40,6 @@ _SEC_CH_UA = (
 )
 
 # Session-unique canvas noise — prevents cross-run fingerprint correlation.
-# Re-randomised each daemon startup (module import time).
 _CANVAS_NOISE = round(random.uniform(0.15, 0.85), 6)
 
 
@@ -197,7 +178,6 @@ _S_WEBGL = (
     "})();"
 )
 
-# Canvas noise — _CANVAS_NOISE placeholder is substituted at apply time
 _S_CANVAS_TMPL = """\
 (function(){
   var n=_CANVAS_NOISE;
@@ -287,8 +267,6 @@ _S_UADATA = """\
 })();"""
 
 
-# Ordered list — tostring/webdriver must come before anything that patches
-# native functions; chrome before permissions.
 _ALL_SCRIPTS: list[tuple[str, str]] = [
     ("tostring",  _S_TOSTRING),
     ("webdriver", _S_WEBDRIVER),
@@ -298,7 +276,7 @@ _ALL_SCRIPTS: list[tuple[str, str]] = [
     ("navigator", _S_NAV),
     ("screen",    _S_SCREEN),
     ("webgl",     _S_WEBGL),
-    ("canvas",    _S_CANVAS_TMPL),   # noise placeholder substituted at apply time
+    ("canvas",    _S_CANVAS_TMPL),
     ("codecs",    _S_CODECS),
     ("iframe",    _S_IFRAME),
     ("error",     _S_ERROR),
@@ -307,18 +285,7 @@ _ALL_SCRIPTS: list[tuple[str, str]] = [
 
 
 def apply_full_stealth(page, context=None) -> None:
-    """Inject all stealth scripts into a Playwright page.
-
-    Call immediately after obtaining a page reference. For CDP-connected
-    browsers, also register the context handler so every new tab gets stealth::
-
-        context.on("page", apply_stealth_to_new_page)
-
-    Args:
-        page:    Playwright sync ``Page`` object.
-        context: Playwright sync ``BrowserContext`` (optional — used to set
-                 consistent HTTP headers and accept-language).
-    """
+    """Inject stealth scripts into Playwright page."""
     if context:
         try:
             context.set_extra_http_headers({
@@ -332,7 +299,6 @@ def apply_full_stealth(page, context=None) -> None:
             logger.debug("set_extra_http_headers failed: %s", exc)
 
     for name, script in _ALL_SCRIPTS:
-        # Substitute the live canvas noise value into the canvas template
         actual_script = (
             script.replace("_CANVAS_NOISE", str(_CANVAS_NOISE))
             if name == "canvas"
@@ -352,28 +318,19 @@ def apply_full_stealth(page, context=None) -> None:
 
 
 def apply_stealth_to_new_page(page) -> None:
-    """Context event handler — fires stealth on every new browser tab.
-
-    Register via::
-
-        context.on("page", apply_stealth_to_new_page)
-    """
+    """Context event handler — skips non-LinkedIn pages (e.g. Google OAuth) so redirects work natively."""
+    try:
+        url = getattr(page, "url", "")
+        if any(domain in url for domain in ["google.com", "accounts.google", "gstatic.com"]):
+            logger.info("Bypassing stealth for external OAuth page: %s", url)
+            return
+    except Exception:
+        pass
     apply_full_stealth(page)
 
 
 def get_chrome_launch_args(debug_port: int = 9222, profile_dir: str = "") -> list[str]:
-    """Return the full hardened Chrome CLI arg list for stealth launching.
-
-    These flags go beyond Outreach Manager's baseline and are drawn from
-    bot-evasion research and the Chromium source.
-
-    Args:
-        debug_port:  Remote debugging port (default 9222).
-        profile_dir: Absolute path for the dedicated ``--user-data-dir``.
-
-    Returns:
-        List[str] of Chrome CLI flags.
-    """
+    """Return Chrome launch flags matching openoutreach_active baseline."""
     args = [
         f"--remote-debugging-port={debug_port}",
         "--disable-blink-features=AutomationControlled",

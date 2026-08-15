@@ -1,4 +1,4 @@
-# outreach_manager/emails/apps.py
+# openoutreach/emails/apps.py
 from django.apps import AppConfig
 
 

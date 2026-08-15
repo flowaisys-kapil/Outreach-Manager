@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/tasks/check_pending.py
+# openoutreach/linkedin/tasks/check_pending.py
 """Check pending task — re-checks all due PENDING deals in the campaign in a batch.
 
 3-way status resolution:
@@ -14,15 +14,14 @@ from django.utils import timezone
 from termcolor import colored
 
 from outreach_manager.core.db.deals import set_profile_state
-from outreach_manager.crm.models import DealState
+from outreach_manager.crm.models import DealState, Deal
 from linkedin_cli.exceptions import SkipProfile
+from outreach_manager.core.workflow_result import WorkflowResult
 
 logger = logging.getLogger(__name__)
 
 
 def _next_due_pending_deal(campaign):
-    from outreach_manager.crm.models import Deal
-
     return (
         Deal.objects.filter(
             campaign=campaign,
@@ -66,7 +65,7 @@ def _resolve_status_individually(session, deal) -> str:
         return "UNKNOWN"
 
 
-def handle_check_pending(task, session, qualifiers):
+def handle_check_pending(task, session, qualifiers) -> WorkflowResult:
     from outreach_manager.linkedin.pipeline.acceptances import (
         check_acceptances_page,
         run_withdrawals_check,
@@ -78,6 +77,7 @@ def handle_check_pending(task, session, qualifiers):
     processed_count = 0
     skipped_count = 0
     errors_count = 0
+    accepted_count = 0
     errors_list: list[str] = []
 
     # Phase A – Synchronization: Make LinkedIn Sent Invitations source of truth
@@ -95,13 +95,27 @@ def handle_check_pending(task, session, qualifiers):
     except Exception as exc:
         logger.warning("[%s] Withdrawal check failed: %s", campaign, exc)
 
-    # B2: Process due PENDING deals
+    # Discovery Log
+    due_deals_count = Deal.objects.filter(
+        campaign=campaign,
+        state=DealState.PENDING,
+        next_check_pending_at__lte=timezone.now(),
+    ).count()
+    logger.info("[%s] Check Pending Workflow — Candidates discovered: %d", campaign, due_deals_count)
+
     connections = None
 
-    while True:
-        deal = claim_due_deal(campaign, [DealState.PENDING], "CHECK_PENDING")
-        if deal is None:
-            break
+    # B2: Process due PENDING deals
+    pending_deals = list(
+        Deal.objects.filter(
+            campaign=campaign,
+            state=DealState.PENDING,
+            lead__disqualified=False,
+        ).select_related("lead", "campaign").order_by("next_check_pending_at")
+    )
+
+    for deal in pending_deals:
+
 
         if connections is None:
             try:
@@ -111,43 +125,42 @@ def handle_check_pending(task, session, qualifiers):
                 connections = set()
 
         public_id = deal.lead.public_identifier
-        logger.info(
-            "[%s] %s %s",
-            campaign, colored("▶ check_pending", "magenta", attrs=["bold"]), public_id,
-        )
+        logger.info("[%s] Processing candidate: %s", campaign, public_id)
 
         try:
+            # Action: Determine connection acceptance
             if public_id in connections:
-                logger.info("[%s] check_pending: %s has accepted! Promoting to CONNECTED.", campaign, public_id)
+                logger.info("[%s] Action executed: Confirmed accepted via broad scrape", campaign)
                 set_profile_state(session, public_id, DealState.CONNECTED.value)
                 next_t = schedule_next_action(deal)
                 log_execution(deal, "CHECK_PENDING", "Accepted (Broad Scrape)", "FIRST_MESSAGE", next_t)
+                logger.info("[%s] State synchronized for: %s", campaign, public_id)
+                accepted_count += 1
                 processed_count += 1
             else:
                 targeted = _resolve_status_individually(session, deal)
+                logger.info("[%s] Action executed: Resolved status to %s", campaign, targeted)
 
                 if targeted == "CONNECTED":
-                    logger.info("[%s] check_pending: %s confirmed CONNECTED via targeted check.", campaign, public_id)
                     set_profile_state(session, public_id, DealState.CONNECTED.value)
                     next_t = schedule_next_action(deal)
                     log_execution(deal, "CHECK_PENDING", "Accepted (Targeted)", "FIRST_MESSAGE", next_t)
+                    logger.info("[%s] State synchronized for: %s", campaign, public_id)
+                    accepted_count += 1
                     processed_count += 1
                 elif targeted == "PENDING":
                     old = deal.backoff_hours or 0
                     new = _double_backoff(deal)
-                    logger.info("%s still pending — backoff %.1fh → %.1fh", public_id, old, new)
                     deal.refresh_from_db()
                     set_profile_state(session, public_id, DealState.PENDING.value)
                     next_t = schedule_next_action(deal)
                     log_execution(deal, "CHECK_PENDING", f"Still Pending (Backoff {new}h)", "CHECK_PENDING", next_t)
+                    logger.info("[%s] State synchronized for: %s", campaign, public_id)
                     processed_count += 1
                 else:
-                    logger.info(
-                        "[%s] check_pending: %s status UNKNOWN — leaving deal PENDING for next check.",
-                        campaign, public_id,
-                    )
                     next_t = schedule_next_action(deal, "retry")
                     log_execution(deal, "CHECK_PENDING", "Status Unknown (Inconclusive)", "RETRY_CHECK_PENDING", next_t)
+                    logger.info("[%s] State synchronized for: %s", campaign, public_id)
                     skipped_count += 1
         except Exception as exc:
             logger.exception("check_pending error for %s: %s", public_id, exc)
@@ -155,14 +168,17 @@ def handle_check_pending(task, session, qualifiers):
             errors_list.append(f"check_pending error for {public_id}: {exc}")
 
     logger.info(
-        "[%s] Check Pending Workflow — Processed: %d, Skipped: %d, Errors: %d",
+        "[%s] Check Pending Workflow Complete — Processed: %d, Skipped: %d, Errors: %d",
         campaign, processed_count, skipped_count, errors_count
     )
 
-    from outreach_manager.core.workflow_result import WorkflowResult
     return WorkflowResult(
         processed_count=processed_count,
         skipped_count=skipped_count,
         error_count=errors_count,
         errors=errors_list,
+        metrics={
+            "pending_requests_checked": processed_count + skipped_count,
+            "accepted_connections": accepted_count,
+        }
     )

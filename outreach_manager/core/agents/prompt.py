@@ -1,4 +1,4 @@
-# outreach_manager/core/agents/prompt.py
+# openoutreach/core/agents/prompt.py
 """Shared prompt generator for the outreach agents.
 
 Both entrypoints — the LinkedIn follow-up agent and the email opener — render
@@ -44,25 +44,35 @@ def render(template_name: str, **context) -> str:
     return _ENV.get_template(template_name).render(**context)
 
 
-def base_context(session, deal) -> dict:
+def base_context(session, deal=None) -> dict:
     """The channel-agnostic prompt variables shared by every outreach entrypoint."""
-    campaign = deal.campaign
-    self_prof = session.self_profile
+    campaign = getattr(deal, "campaign", None) or getattr(session, "campaign", None)
+    self_prof = getattr(session, "self_profile", {}) or {}
     self_name = (
         f"{self_prof.get('first_name', '')} {self_prof.get('last_name', '')}".strip()
-        or session.django_user.username
+        or getattr(getattr(session, "django_user", None), "username", "me")
     )
+    profile_summary = _format_facts(deal.profile_summary) if deal else "(none yet)"
     ctx = {
         "self_name": self_name,
-        "profile_summary": _format_facts(deal.profile_summary),
+        "profile_summary": profile_summary,
     }
-    ctx.update(_campaign_stable_ctx(campaign))
+    if campaign:
+        ctx.update(_campaign_stable_ctx(campaign))
+    else:
+        ctx.update({
+            "product_docs": "",
+            "campaign_objective": "",
+            "booking_link": "",
+        })
     return ctx
 
 
 def _format_facts(summary: dict | None) -> str:
     """Render a `{facts: [...]}` summary blob as a bullet list."""
-    facts = (summary or {}).get("facts") or []
-    if not facts:
+    if not isinstance(summary, dict):
+        return "(none yet)"
+    facts = summary.get("facts") or []
+    if not facts or not isinstance(facts, list):
         return "(none yet)"
     return "\n".join(f"- {f}" for f in facts)

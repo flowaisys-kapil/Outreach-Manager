@@ -1,6 +1,6 @@
-# outreach_manager/linkedin/browser/human_actions.py
+# openoutreach/linkedin/browser/human_actions.py
 """
-Human behavior simulation for the Outreach Manager browser automation.
+Human behavior simulation for the Open Outreach browser automation.
 
 Ported and significantly enhanced from Outreach Manager's:
   - HumanBehaviorHelper  (human_type, scroll_like_human)

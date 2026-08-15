@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/admin.py
+# openoutreach/linkedin/admin.py
 from django.contrib import admin
 
 from outreach_manager.linkedin.models import ActionLog, LinkedInProfile, SearchKeyword

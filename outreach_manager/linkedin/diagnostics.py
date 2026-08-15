@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/diagnostics.py
+# openoutreach/linkedin/diagnostics.py
 """Capture page state on automation failures for post-mortem debugging."""
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-# outreach_manager/core/agents/email_opener.py
+# openoutreach/core/agents/email_opener.py
 """Email opener agent: composes the single Layer-1 cold email for a deal.
 
 A distinct entrypoint from the follow-up agent. Layer 1 email is one outbound

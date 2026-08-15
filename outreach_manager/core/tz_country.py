@@ -1,4 +1,4 @@
-# outreach_manager/core/tz_country.py
+# openoutreach/core/tz_country.py
 """Resolve an active-hours timezone from a LinkedIn profile's country.
 
 The active-hours window mimics the *operator's* waking rhythm, so the zone we

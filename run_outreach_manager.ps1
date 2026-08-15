@@ -106,7 +106,12 @@ if (-not (Test-Path "data")) {
 
 # 5. Start Django CRM Server in the background (output directly to console)
 Write-Host "Starting Django CRM server..." -ForegroundColor Cyan
-$djangoProcess = Start-Process -FilePath ".\.venv\Scripts\python.exe" -ArgumentList "-u", "manage.py", "runserver" -NoNewWindow -PassThru
+$pythonExe = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
+if (-not (Test-Path $pythonExe)) {
+    $pythonExe = "python"
+}
+$djangoProcess = Start-Process -FilePath $pythonExe -ArgumentList "-u", "manage.py", "runserver" -NoNewWindow -PassThru
+
 
 # 6. Wait for Django server to initialize, then open the browser to the Dashboard
 Write-Host "Opening Outreach Manager Dashboard at http://localhost:8000/..." -ForegroundColor Green

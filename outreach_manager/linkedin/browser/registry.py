@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/browser/registry.py
+# openoutreach/linkedin/browser/registry.py
 from __future__ import annotations
 
 import logging

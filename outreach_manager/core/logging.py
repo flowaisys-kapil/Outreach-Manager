@@ -1,4 +1,4 @@
-# outreach_manager/core/logging.py
+# openoutreach/core/logging.py
 """Centralized logging configuration with colored output and startup banner."""
 from __future__ import annotations
 
@@ -11,12 +11,17 @@ from termcolor import colored
 # ── Banner ──────────────────────────────────────────────────────────
 
 BANNER = r"""
-  ___utreach  __  __                                  
- / _ \ _   _|  \/  | __ _ _ __   __ _  __ _  ___ _ __ 
-| | | | | | | |\/| |/ _` | '_ \ / _` |/ _` |/ _ \ '__|
-| |_| | |_| | |  | | (_| | | | | (_| | (_| |  __/ |   
- \___/ \__,_|_|  |_|\__,_|_| |_|\__,_|\__, |\___|_|   
-                                      |___/           
+  ___  _   _ _____ ____  _____    _    ____ _   _ 
+ / _ \| | | |_   _|  _ \| ____|  / \  / ___| | | |
+| | | | | | | | | | |_) |  _|   / _ \| |   | |_| |
+| |_| | |_| | | | |  _ <| |___ / ___ \ |___|  _  |
+ \___/ \___/  |_| |_| \_\_____/_/   \_\____|_| |_|
+
+ __  __    _    _   _    _    ____ _____ ____  
+|  \/  |  / \  | \ | |  / \  / ___| ____|  _ \ 
+| |\/| | / _ \ |  \| | / _ \| |  _|  _| | |_) |
+| |  | |/ ___ \| |\  |/ ___ \ |_| | |___|  _ < 
+|_|  |_/_/   \_\_| \_/_/   \_\____|_____|_| \_\
 """
 
 
@@ -69,8 +74,9 @@ _BRANDS = {
 
 
 def _color_enabled() -> bool:
-    """Mirror termcolor's gating: NO_COLOR off, FORCE_COLOR on, else TTY-only."""
-    if "NO_COLOR" in os.environ:
+    """Mirror termcolor's gating: NO_COLOR off, FORCE_COLOR on, else TTY-only, checked via get_config()."""
+    from outreach_manager.core.config import get_config
+    if not get_config().diagnostics.color_enabled:
         return False
     if os.environ.get("FORCE_COLOR"):
         return True

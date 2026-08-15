@@ -1,4 +1,4 @@
-# outreach_manager/chat/admin.py
+# openoutreach/chat/admin.py
 from django.contrib import admin
 
 from outreach_manager.chat.models import ChatMessage

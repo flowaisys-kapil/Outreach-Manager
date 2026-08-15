@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/tasks/connect.py
+# openoutreach/linkedin/tasks/connect.py
 """Connect task — resolves candidates from the campaign pool and acts in a batch."""
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from outreach_manager.crm.models import DealState, Deal
 from outreach_manager.linkedin.db.leads import disqualify_lead
 from outreach_manager.linkedin.models import ActionLog
 from linkedin_cli.exceptions import ProfileInaccessibleError, ReachedConnectionLimit, SkipProfile
+from outreach_manager.core.workflow_result import WorkflowResult
 
 logger = logging.getLogger(__name__)
 
@@ -27,70 +28,35 @@ class ConnectStrategy:
 
 
 def strategy_for(campaign, qualifiers):
-    """Build the right ConnectStrategy based on campaign type."""
+    """Build the right ConnectStrategy based on campaign type.
+
+    backfill=False ensures Connect ONLY operates on candidate deals already in DB,
+    leaving lead discovery/extraction strictly to the EXTRACT_LEADS workflow.
+    """
     qualifier = qualifiers.get(campaign.pk)
 
     from outreach_manager.linkedin.pipeline.pools import find_candidate
-    from outreach_manager.core.models import SiteConfig
-    from django.utils import timezone
-
-    site_config = SiteConfig.load()
-
-    override_active = False
-    if site_config.simulated_task and site_config.override_expires_at:
-        if timezone.now() < site_config.override_expires_at:
-            override_active = True
-
-    active_mode = site_config.simulated_task if override_active else ""
-    if not active_mode:
-        now_local = timezone.now().astimezone()
-        hour = now_local.hour
-        if hour >= 20 or hour < 8:
-            active_mode = "nighttime"
-
-    if active_mode in ["extract", "nighttime"]:
-        backfill = True
-    else:
-        backfill = False
 
     return ConnectStrategy(
-        find_candidate=lambda s: find_candidate(s, qualifier, backfill=backfill),
+        find_candidate=lambda s: find_candidate(s, qualifier, backfill=False),
         pre_connect=None,
         qualifier=qualifier,
     )
 
 
-def handle_connect(task, session, qualifiers) -> bool:
+def handle_connect(task, session, qualifiers) -> WorkflowResult:
     from linkedin_cli.actions.connect import send_connection_request
     from linkedin_cli.actions.status import get_connection_status
 
     campaign = session.campaign
     strategy = strategy_for(campaign, qualifiers)
 
-    from outreach_manager.core.models import SiteConfig
-    from django.utils import timezone
-
-    site_config = SiteConfig.load()
-    override_active = bool(site_config.simulated_task and site_config.override_expires_at and timezone.now() < site_config.override_expires_at)
-    active_mode = site_config.simulated_task if override_active else ""
-
-    # Extract mode only scrapes profiles — batch iterate qualify_gen
-    if active_mode == "extract":
-        logger.info("[%s] %s — Running live LinkedIn Search lead extraction & qualification batch...", campaign, colored("▶ extract", "magenta", attrs=["bold"]))
-        from outreach_manager.linkedin.pipeline.pools import qualify_source
-        qualify_gen = qualify_source(session, strategy.qualifier)
-        extracted_count = 0
-        for extracted_pid in qualify_gen:
-            if extracted_pid:
-                extracted_count += 1
-                logger.info("[%s] Search Extraction SUCCESS: Extracted and qualified new lead %s", campaign, extracted_pid)
-        logger.info("[%s] Extract Mode Batch Complete — %d lead(s) extracted", campaign, extracted_count)
-        return extracted_count > 0
-
     processed_count = 0
     skipped_count = 0
     errors_count = 0
     errors_list: list[str] = []
+
+    logger.info("[%s] Connect Workflow — Candidates discovered: active loop", campaign)
 
     while session.linkedin_profile.can_execute(ActionLog.ActionType.CONNECT):
         candidate = strategy.find_candidate(session)
@@ -106,28 +72,16 @@ def handle_connect(task, session, qualifiers) -> bool:
         ).first()
 
         if deal and deal.state in (DealState.CONNECTED, DealState.PENDING, DealState.FAILED):
-            logger.info("[%s] connect: %s is already %s — skipping profile visit", campaign, public_id, deal.state)
+            logger.info("[%s] Connect Workflow — Skipping candidate %s (already %s)", campaign, public_id, deal.state)
             skipped_count += 1
             continue
 
-        reason = deal.reason if deal else ""
-        stats = strategy.qualifier.explain(candidate, session) if strategy.qualifier else ""
-        logger.info("[%s] %s", campaign, colored("▶ connect", "cyan", attrs=["bold"]))
-        logger.info("[%s] %s (%s) — %s", campaign, public_id, stats, reason or "")
+        logger.info("[%s] Processing candidate: %s", campaign, public_id)
 
         try:
-            status = DealState(get_connection_status(session, profile).value)
-
-            if status in (DealState.CONNECTED, DealState.PENDING):
-                set_profile_state(session, public_id, status.value)
-                if deal:
-                    from outreach_manager.linkedin.scheduler import log_execution, schedule_next_action
-                    next_t = schedule_next_action(deal)
-                    log_execution(deal, "CONNECT", f"Observed Status {status.value}", deal.state, next_t)
-                processed_count += 1
-                continue
-
+            # Action: Single navigation to check status and send connection request if eligible
             new_state = DealState(send_connection_request(session=session, profile=profile).value)
+            logger.info("[%s] Action executed: Connect action complete, new state: %s", campaign, new_state.value)
 
             if new_state == DealState.QUALIFIED:
                 attempts = increment_connect_attempts(session, public_id)
@@ -138,7 +92,7 @@ def handle_connect(task, session, qualifiers) -> bool:
                     logger.warning("Disqualified %s — %s", public_id, reason)
                     if deal:
                         from outreach_manager.linkedin.scheduler import log_execution, schedule_next_action
-                        next_t = schedule_next_action(deal)
+                        schedule_next_action(deal)
                         log_execution(deal, "CONNECT", "Disqualified (No Connect Button)", "NONE", None)
                     skipped_count += 1
                 else:
@@ -149,6 +103,7 @@ def handle_connect(task, session, qualifiers) -> bool:
                         next_t = schedule_next_action(deal)
                         log_execution(deal, "CONNECT", f"Attempt {attempts}/{MAX_CONNECT_ATTEMPTS} No Button", "CONNECT", next_t)
                     processed_count += 1
+                logger.info("[%s] State synchronized for: %s", campaign, public_id)
             else:
                 from django.utils import timezone as _tz
                 Deal.objects.filter(
@@ -177,6 +132,7 @@ def handle_connect(task, session, qualifiers) -> bool:
 
                 if hasattr(session, "connects_sent_this_run"):
                     session.connects_sent_this_run += 1
+                logger.info("[%s] State synchronized for: %s", campaign, public_id)
                 processed_count += 1
 
         except ReachedConnectionLimit as e:
@@ -193,6 +149,7 @@ def handle_connect(task, session, qualifiers) -> bool:
                 from outreach_manager.linkedin.scheduler import log_execution, schedule_next_action
                 schedule_next_action(deal)
                 log_execution(deal, "CONNECT", f"Profile Inaccessible: {e}", "NONE", None)
+            logger.info("[%s] State synchronized for: %s", campaign, public_id)
             skipped_count += 1
 
         except SkipProfile as e:
@@ -202,6 +159,7 @@ def handle_connect(task, session, qualifiers) -> bool:
                 from outreach_manager.linkedin.scheduler import log_execution, schedule_next_action
                 schedule_next_action(deal)
                 log_execution(deal, "CONNECT", f"Skipped Profile: {e}", "NONE", None)
+            logger.info("[%s] State synchronized for: %s", campaign, public_id)
             skipped_count += 1
 
         except Exception as exc:
@@ -210,14 +168,14 @@ def handle_connect(task, session, qualifiers) -> bool:
             errors_list.append(f"connect error for {public_id}: {exc}")
 
     logger.info(
-        "[%s] Connect Workflow — Processed: %d, Skipped: %d, Errors: %d",
+        "[%s] Connect Workflow Complete — Processed: %d, Skipped: %d, Errors: %d",
         campaign, processed_count, skipped_count, errors_count
     )
 
-    from outreach_manager.core.workflow_result import WorkflowResult
     return WorkflowResult(
         processed_count=processed_count,
         skipped_count=skipped_count,
         error_count=errors_count,
         errors=errors_list,
+        metrics={"connection_requests_sent": processed_count}
     )

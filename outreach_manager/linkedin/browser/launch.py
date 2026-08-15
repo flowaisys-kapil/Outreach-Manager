@@ -1,8 +1,8 @@
-# outreach_manager/linkedin/browser/launch.py
+# openoutreach/linkedin/browser/launch.py
 """Persist + orchestrate the daemon's LinkedIn browser session.
 
 Cookie persistence (to the Django DB) and the launch/login orchestration are
-Outreach Manager concerns, so they live here. The reusable *mechanics* — launching a
+OpenOutreach concerns, so they live here. The reusable *mechanics* — launching a
 stealthed browser, driving the login form, clearing checkpoints — stay in the
 Django-free ``linkedin_cli.browser`` library and are called from here.
 
@@ -20,10 +20,12 @@ import logging
 
 from termcolor import colored
 
+from playwright.sync_api import sync_playwright
+
 from linkedin_cli.auth import authenticate
 from linkedin_cli.browser.login import dismiss_comply_gate, launch_browser
-from linkedin_cli.browser.nav import goto_page
 from outreach_manager.linkedin.browser.stealth_profile import (
+
     apply_full_stealth,
     apply_stealth_to_new_page,
 )
@@ -91,18 +93,22 @@ def purge_chrome_cache():
 
 
 def start_browser_session(session):
+    """Launch/connect a browser session with full anti-detection stealth configuration."""
+    if type(session).__name__ == "FakeAccountSession" or getattr(session, "is_fake", False):
+        return session
+
     import os
-    from playwright.sync_api import sync_playwright
-    
+
     try:
         purge_chrome_cache()
     except Exception as e:
         logger.warning("Cache purge failed: %s", e)
 
-    logger.debug("Configuring browser for %s", session)
+    from outreach_manager.core.config import get_config
+    browser_cfg = get_config().browser
 
-    use_cdp = os.environ.get("USE_CDP", "False").lower() in ("true", "1", "yes")
-    cdp_url = os.environ.get("CDP_URL", "http://127.0.0.1:9222")
+    use_cdp = browser_cfg.use_cdp
+    cdp_url = browser_cfg.cdp_url
 
     if use_cdp:
         logger.info("Connecting to active browser via CDP at %s", cdp_url)
@@ -154,91 +160,97 @@ def start_browser_session(session):
                 session.browser = session.playwright.chromium.connect_over_cdp(cdp_url)
                 logger.info("Successfully connected to the auto-spawned Chrome instance!")
             except Exception as retry_err:
-                logger.error(colored(
-                    f"Auto-spawn failed or failed to connect on retry: {retry_err}",
-                    "red", attrs=["bold"]
+                logger.warning(
+                    "[WARN] CDP connection failed (%s). Falling back to direct visible Playwright Chromium browser launch...",
+                    retry_err,
+                )
+                use_cdp = False
+
+        if use_cdp and session.browser:
+            # Get existing context or create one
+            if session.browser.contexts:
+                session.context = session.browser.contexts[0]
+            else:
+                session.context = session.browser.new_context()
+
+            logger.info("Applying stealth profile to CDP context...")
+
+            for existing_page in session.context.pages:
+                apply_full_stealth(existing_page, session.context)
+
+            session.context.on("page", apply_stealth_to_new_page)
+
+            linkedin_page = None
+            for p in session.context.pages:
+                if "linkedin.com" in p.url:
+                    linkedin_page = p
+                    logger.info("Found existing LinkedIn tab: %s", p.url)
+                    break
+
+            if linkedin_page:
+                session.page = linkedin_page
+            else:
+                session.page = session.context.new_page()
+                session.page.goto(LINKEDIN_FEED_URL)
+
+            if "linkedin.com" not in session.page.url:
+                session.page.goto(LINKEDIN_FEED_URL)
+
+            # Wait for user to log in if they are on a login/auth page
+            import urllib.parse
+            parsed_path = urllib.parse.urlparse(session.page.url).path
+            if any(k in parsed_path for k in ["/login", "/signup", "authwall", "checkpoint"]):
+                logger.warning(colored(
+                    "Not logged in to LinkedIn. Please log in manually in the visible Chrome window.",
+                    "yellow", attrs=["bold"]
                 ))
-                logger.error(colored(
-                    f"Failed to connect to browser over CDP at {cdp_url}. "
-                    "Please ensure Google Chrome is running with remote debugging enabled.",
-                    "red", attrs=["bold"]
-                ))
-                logger.error(colored(
-                    f'"{chrome_path}" --remote-debugging-port=9222 --user-data-dir="{profile_dir}"',
-                    "yellow"
-                ))
-                raise e
+                import time
+                while True:
+                    logged_in_page = None
+                    for p in session.context.pages:
+                        try:
+                            p_path = urllib.parse.urlparse(p.url).path
+                            if any(k in p_path for k in ["/feed", "/in/", "/messaging", "/mynetwork", "/search"]) and not any(k in p_path for k in ["/login", "/signup", "authwall"]):
+                                logged_in_page = p
+                                break
+                        except Exception:
+                            pass
+                    if logged_in_page:
+                        session.page = logged_in_page
+                        break
+                    time.sleep(2)
+                logger.info(colored("Logged in successfully in active browser!", "green", attrs=["bold"]))
+                try:
+                    save_storage_state(session)
+                except Exception:
+                    pass
 
-        # Get existing context or create one
-        if session.browser.contexts:
-            session.context = session.browser.contexts[0]
-        else:
-            session.context = session.browser.new_context()
+            dismiss_comply_gate(session.page)
 
-        # ----------------------------------------------------------------
-        # Apply full stealth to ALL pages in this context — now and future.
-        # This is the critical missing piece in CDP mode: stealth scripts
-        # must be injected here because connect_over_cdp() doesn't go
-        # through playwright-stealth's launch hook.
-        # ----------------------------------------------------------------
-        logger.info("Applying stealth profile to CDP context...")
 
-        # Stealth all already-open pages (e.g. new tab, about:blank)
-        for existing_page in session.context.pages:
-            apply_full_stealth(existing_page, session.context)
-
-        # Stealth every page opened from here forward (new tabs, pop-ups)
-        session.context.on("page", apply_stealth_to_new_page)
-
-        # Find if a LinkedIn page is already open in the browser
-        linkedin_page = None
-        for p in session.context.pages:
-            if "linkedin.com" in p.url:
-                linkedin_page = p
-                logger.info("Found existing LinkedIn tab: %s", p.url)
-                break
-
-        if linkedin_page:
-            session.page = linkedin_page
-        else:
-            session.page = session.context.new_page()
-            # Stealth is already wired via the context 'page' event above;
-            # new_page() triggers apply_stealth_to_new_page automatically.
-            session.page.goto(LINKEDIN_FEED_URL)
-
-        # Ensure we are on LinkedIn feed or logged in
-        if "linkedin.com" not in session.page.url:
-            session.page.goto(LINKEDIN_FEED_URL)
-
-        # Wait for user to log in if they aren't
-        if any(k in session.page.url for k in ["/login", "/signup", "authwall", "checkpoint"]):
-            logger.warning(colored(
-                "Not logged in to LinkedIn. Please log in manually in the visible Chrome window.",
-                "yellow", attrs=["bold"]
-            ))
-            import time
-            while not any(k in session.page.url for k in ["/feed", "/in/", "/messaging"]):
-                time.sleep(2)
-            logger.info(colored("Logged in successfully in active browser!", "green", attrs=["bold"]))
-            try:
-                save_storage_state(session)
-            except Exception:
-                pass
-
-        dismiss_comply_gate(session.page)
     else:
         session.linkedin_profile.refresh_from_db(fields=["cookie_data"])
         cookie_data = session.linkedin_profile.cookie_data
 
         storage_state = cookie_data if cookie_data else None
-        if storage_state:
-            logger.info("Loading saved session for %s", session)
+        visibility = browser_cfg.visibility.lower()
+        is_headless = (visibility == "hidden")
+        logger.info("Launching Playwright browser (visibility=%s, headless=%s)...", visibility, is_headless)
 
-        session.page, session.context, session.browser, session.playwright = launch_browser(storage_state=storage_state)
+        session.playwright = sync_playwright().start()
+        session.browser = session.playwright.chromium.launch(
+            headless=is_headless,
+            slow_mo=50,
+        )
+        session.context = session.browser.new_context(storage_state=storage_state)
+        session.context.set_default_timeout(30000)
+        session.context.set_default_navigation_timeout(30000)
 
-        # Stealth non-CDP path: launch_browser uses playwright-stealth's
-        # Stealth().apply_stealth_sync(context) which covers the basics.
-        # We add our extended scripts on top for full coverage.
+        from linkedin_cli.browser.login import Stealth
+        Stealth().apply_stealth_sync(session.context)
+        session.page = session.context.new_page()
+
+        # Stealth non-CDP path: apply extended scripts on top of stealth sync
         logger.info("Applying extended stealth profile to launched browser...")
         apply_full_stealth(session.page, session.context)
         session.context.on("page", apply_stealth_to_new_page)

@@ -1,4 +1,4 @@
-# outreach_manager/emails/sender.py
+# openoutreach/emails/sender.py
 """Send one outbound email through a Mailbox's SMTP credentials.
 
 No error handling by design: a failed send raises and the EMAIL task is marked

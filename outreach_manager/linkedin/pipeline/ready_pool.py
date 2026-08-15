@@ -1,4 +1,4 @@
-# outreach_manager/linkedin/pipeline/ready_pool.py
+# openoutreach/linkedin/pipeline/ready_pool.py
 """Ready-to-connect pool: GP confidence gate between NEW and READY_TO_CONNECT."""
 from __future__ import annotations
 
